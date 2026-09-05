@@ -1,0 +1,23 @@
+[workspace]
+resolver = "2"
+members = ["core", "teacher-cli", "wordglow"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+
+[workspace.dependencies]
+rusqlite = { version = "0.31", features = ["bundled"] }
+uuid = { version = "1", features = ["v4", "serde"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+zip = "0.6"
+reqwest = { version = "0.12", features = ["json", "blocking"] }
+base64 = "0.22"
+dotenvy = "0.15"
+directories = "5"
+thiserror = "1"
+anyhow = "1"
+sha2 = "0.10"
+chrono = "0.4"
+clap = { version = "4", features = ["derive"] }

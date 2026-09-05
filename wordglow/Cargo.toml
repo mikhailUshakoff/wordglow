@@ -1,0 +1,11 @@
+[package]
+name = "wordglow"
+version.workspace = true
+edition.workspace = true
+
+[[bin]]
+name = "wordglow"
+path = "src/main.rs"
+
+[dependencies]
+core = { package = "wordglow-core", path = "../core" }

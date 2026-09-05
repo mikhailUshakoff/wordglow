@@ -1,0 +1,15 @@
+[package]
+name = "teacher-cli"
+version.workspace = true
+edition.workspace = true
+
+[[bin]]
+name = "teacher-cli"
+path = "src/main.rs"
+
+[dependencies]
+core = { package = "wordglow-core", path = "../core" }
+rusqlite = { workspace = true }
+clap = { workspace = true }
+anyhow = { workspace = true }
+dotenvy = { workspace = true }

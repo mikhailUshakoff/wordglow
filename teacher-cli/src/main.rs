@@ -1,0 +1,201 @@
+use anyhow::Context;
+use clap::{Parser, Subcommand};
+
+/// Teacher-side CLI for authoring Wordglow content.
+#[derive(Parser)]
+#[command(name = "teacher-cli")]
+struct Cli {
+    #[command(subcommand)]
+    command: Option<Command>,
+}
+
+#[derive(Subcommand)]
+enum Command {
+    /// Create a new book
+    AddBook {
+        #[arg(long)]
+        title: String,
+        #[arg(long)]
+        author: Option<String>,
+        #[arg(long)]
+        language: Option<String>,
+    },
+
+    /// Add a lesson to a book (repeatable, to build up a book over time)
+    AddLesson {
+        /// Book id or exact title
+        #[arg(long)]
+        book: String,
+        #[arg(long)]
+        title: String,
+        #[arg(long)]
+        text: String,
+        #[arg(long)]
+        order: i64,
+    },
+
+    /// Remove a lesson, identified by id, title, or text within a book
+    DeleteLesson {
+        /// Book id or exact title
+        #[arg(long)]
+        book: String,
+        #[arg(long)]
+        id: Option<String>,
+        #[arg(long)]
+        title: Option<String>,
+        #[arg(long)]
+        text: Option<String>,
+    },
+
+    /// Change a book's lesson order
+    ReorderLessons {
+        /// Book id or exact title
+        #[arg(long)]
+        book: String,
+        /// Every lesson id in the book, comma-separated, in the desired order
+        #[arg(long, value_delimiter = ',')]
+        order: Vec<String>,
+    },
+
+    /// Synthesize lesson audio via Google Cloud TTS, with word timepoints.
+    /// Skips regeneration if cached audio already matches the lesson's text.
+    GenerateTts {
+        /// Book id or exact title
+        #[arg(long)]
+        book: String,
+        #[arg(long)]
+        lesson_id: Option<String>,
+        #[arg(long)]
+        lesson_title: Option<String>,
+        #[arg(long)]
+        lesson_text: Option<String>,
+        /// BCP-47 code, e.g. "en-US". Falls back to the book's language.
+        #[arg(long)]
+        language_code: Option<String>,
+        /// e.g. "en-US-Wavenet-D". Left unset, Google picks a default voice.
+        #[arg(long)]
+        voice_name: Option<String>,
+        #[arg(long)]
+        ssml_gender: Option<String>,
+        /// Regenerate even if cached audio already matches the lesson's text
+        #[arg(long)]
+        force: bool,
+    },
+}
+
+fn resolve_lesson(
+    conn: &rusqlite::Connection,
+    book_id: &str,
+    id: Option<&str>,
+    title: Option<&str>,
+    text: Option<&str>,
+) -> anyhow::Result<core::models::Lesson> {
+    if id.is_none() && title.is_none() && text.is_none() {
+        anyhow::bail!("at least one of --id/--lesson-id, --title/--lesson-title, --text/--lesson-text is required");
+    }
+    Ok(core::lessons::resolve_one(conn, book_id, id, title, text)?)
+}
+
+fn main() -> anyhow::Result<()> {
+    let cli = Cli::parse();
+
+    // Opening the db also runs migrations, so the schema exists after
+    // the very first invocation.
+    let conn = core::db::open_default()?;
+
+    match cli.command {
+        None => println!("wordglow.db ready at {:?}", core::paths::db_path()?),
+
+        Some(Command::AddBook {
+            title,
+            author,
+            language,
+        }) => {
+            let book = core::books::create(&conn, &title, author.as_deref(), language.as_deref())?;
+            println!("created book {} ({})", book.id, book.title);
+        }
+
+        Some(Command::AddLesson {
+            book,
+            title,
+            text,
+            order,
+        }) => {
+            let book = core::books::resolve(&conn, &book)?;
+            let lesson = core::lessons::create(&conn, &book.id, &title, &text, order)?;
+            println!(
+                "created lesson {} in book '{}' at position {}",
+                lesson.id, book.title, lesson.order_index
+            );
+        }
+
+        Some(Command::DeleteLesson {
+            book,
+            id,
+            title,
+            text,
+        }) => {
+            let book = core::books::resolve(&conn, &book)?;
+            let lesson = resolve_lesson(&conn, &book.id, id.as_deref(), title.as_deref(), text.as_deref())?;
+            core::lessons::delete(&conn, &lesson.id)?;
+            println!("deleted lesson {} ('{}')", lesson.id, lesson.title);
+        }
+
+        Some(Command::ReorderLessons { book, order }) => {
+            let book = core::books::resolve(&conn, &book)?;
+            let count = order.len();
+            core::lessons::reorder(&conn, &book.id, &order)?;
+            println!("reordered {count} lessons in book '{}'", book.title);
+        }
+
+        Some(Command::GenerateTts {
+            book,
+            lesson_id,
+            lesson_title,
+            lesson_text,
+            language_code,
+            voice_name,
+            ssml_gender,
+            force,
+        }) => {
+            let book = core::books::resolve(&conn, &book)?;
+            let lesson = resolve_lesson(
+                &conn,
+                &book.id,
+                lesson_id.as_deref(),
+                lesson_title.as_deref(),
+                lesson_text.as_deref(),
+            )?;
+
+            let language_code = language_code
+                .or(book.language)
+                .ok_or_else(|| anyhow::anyhow!("--language-code is required (book has no language set)"))?;
+
+            dotenvy::dotenv().ok();
+            let api_key = std::env::var("GOOGLE_TTS_API_KEY")
+                .context("set GOOGLE_TTS_API_KEY (in the environment or a .env file)")?;
+
+            let voice = core::tts::VoiceConfig {
+                language_code,
+                voice_name,
+                ssml_gender,
+            };
+
+            match core::tts::generate_tts(&conn, &api_key, &lesson, voice, force)? {
+                core::tts::GenerateOutcome::UpToDate(audio) => println!(
+                    "audio already up to date for lesson '{}' (generated {}); use --force to regenerate",
+                    lesson.title, audio.generated_at
+                ),
+                core::tts::GenerateOutcome::Generated(audio) => println!(
+                    "generated audio for lesson '{}' -> {} ({} words, voice '{}')",
+                    lesson.title,
+                    audio.audio_path,
+                    audio.word_timepoints.len(),
+                    audio.voice
+                ),
+            }
+        }
+    }
+
+    Ok(())
+}

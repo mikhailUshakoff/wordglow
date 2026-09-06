@@ -6,6 +6,7 @@ pub mod lessons;
 pub mod migrations;
 pub mod models;
 pub mod paths;
+pub mod questions;
 pub mod tts;
 
 pub use error::{CoreError, Result};

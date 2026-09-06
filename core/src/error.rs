@@ -17,6 +17,9 @@ pub enum CoreError {
     #[error("tts error: {0}")]
     Tts(String),
 
+    #[error("ollama error: {0}")]
+    Ollama(String),
+
     #[error("could not determine data directory")]
     NoDataDir,
 

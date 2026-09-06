@@ -22,3 +22,4 @@ sha2 = "0.10"
 chrono = "0.4"
 clap = { version = "4", features = ["derive"] }
 msedge-tts = "0.4"
+envy = "0.4"

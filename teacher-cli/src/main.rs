@@ -98,6 +98,36 @@ enum Command {
         #[arg(long)]
         force: bool,
     },
+
+    /// Call Ollama to produce 3-5 open comprehension questions for a lesson,
+    /// replacing any questions previously generated for it.
+    GenerateQuestions {
+        #[arg(long)]
+        lesson_id: String,
+    },
+}
+
+/// Ollama connection settings, loaded from the environment (or a `.env`
+/// file) via `envy`. Both fields have defaults, so no env vars are required.
+#[derive(serde::Deserialize)]
+struct OllamaEnv {
+    #[serde(default = "OllamaEnv::default_url")]
+    ollama_url: String,
+    #[serde(default = "OllamaEnv::default_model")]
+    ollama_model: String,
+    /// Bearer token for Ollama's hosted cloud API. Not needed for a local
+    /// Ollama server.
+    ollama_api_key: Option<String>,
+}
+
+impl OllamaEnv {
+    fn default_url() -> String {
+        "https://ollama.com".to_string()
+    }
+
+    fn default_model() -> String {
+        "gpt-oss:120b".to_string()
+    }
 }
 
 fn resolve_lesson(
@@ -234,6 +264,32 @@ fn main() -> anyhow::Result<()> {
                     audio.word_timepoints.len(),
                     audio.voice
                 ),
+            }
+        }
+
+        Some(Command::GenerateQuestions { lesson_id }) => {
+            let lesson = core::lessons::get(&conn, &lesson_id)?
+                .ok_or_else(|| anyhow::anyhow!("no lesson with id {lesson_id}"))?;
+
+            dotenvy::dotenv().ok();
+            let env: OllamaEnv = envy::from_env().context("reading OLLAMA_URL / OLLAMA_MODEL from the environment")?;
+
+            let questions = core::questions::generate_questions(
+                &conn,
+                &env.ollama_url,
+                env.ollama_api_key.as_deref(),
+                &env.ollama_model,
+                &lesson,
+            )?;
+
+            println!(
+                "generated {} question(s) for lesson '{}' (model '{}')",
+                questions.len(),
+                lesson.title,
+                env.ollama_model
+            );
+            for q in &questions {
+                println!("  {}. {}", q.order_index + 1, q.question_text);
             }
         }
     }

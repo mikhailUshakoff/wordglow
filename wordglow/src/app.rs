@@ -1,9 +1,15 @@
+use std::cell::RefCell;
 use std::collections::HashMap;
+use std::rc::Rc;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 
 use leptos::html;
 use leptos::prelude::*;
 use leptos::task::spawn_local;
 use serde::Serialize;
+use wasm_bindgen::closure::Closure;
+use wasm_bindgen::JsCast;
 
 use crate::bindings::{invoke, invoke0};
 use crate::dto::{BookDto, DictionaryEntryDto, LessonAudioDto, LessonDetailDto, LessonDto, LessonStatus, QuestionDto};
@@ -413,19 +419,44 @@ fn ReadingView() -> impl IntoView {
         }
     };
 
-    let on_timeupdate = move |_| {
+    // `timeupdate` only fires a handful of times a second in the webview, which
+    // made the highlight visibly skip words. Drive it from `requestAnimationFrame`
+    // instead so it tracks `currentTime` every frame the audio is playing.
+    Effect::new(move |_| {
         let Some(el) = audio_ref.get() else { return };
-        let ms = (el.current_time() * 1000.0) as u64;
-        let Some(audio) = audio_info.get() else { return };
-        let active = audio
-            .word_timepoints
-            .iter()
-            .enumerate()
-            .rev()
-            .find(|(_, tp)| tp.start_ms <= ms)
-            .map(|(i, _)| i);
-        current_word.set(active);
-    };
+        let alive = Arc::new(AtomicBool::new(true));
+        let alive_for_closure = alive.clone();
+        let cell: Rc<RefCell<Option<Closure<dyn FnMut()>>>> = Rc::new(RefCell::new(None));
+        let cell_for_closure = cell.clone();
+        *cell.borrow_mut() = Some(Closure::new(move || {
+            if !alive_for_closure.load(Ordering::Relaxed) {
+                cell_for_closure.borrow_mut().take();
+                return;
+            }
+            if !el.paused() {
+                let ms = (el.current_time() * 1000.0) as u64;
+                if let Some(audio) = audio_info.get_untracked() {
+                    let active = audio
+                        .word_timepoints
+                        .iter()
+                        .enumerate()
+                        .rev()
+                        .find(|(_, tp)| tp.start_ms <= ms)
+                        .map(|(i, _)| i);
+                    if current_word.get_untracked() != active {
+                        current_word.set(active);
+                    }
+                }
+            }
+            if let (Some(win), Some(cb)) = (web_sys::window(), cell_for_closure.borrow().as_ref()) {
+                let _ = win.request_animation_frame(cb.as_ref().unchecked_ref());
+            }
+        }));
+        if let (Some(win), Some(cb)) = (web_sys::window(), cell.borrow().as_ref()) {
+            let _ = win.request_animation_frame(cb.as_ref().unchecked_ref());
+        }
+        on_cleanup(move || alive.store(false, Ordering::Relaxed));
+    });
 
     let on_ended = move |_| {
         let lesson_id = state.selected_lesson.get_untracked().map(|l| l.id).unwrap_or_default();
@@ -481,7 +512,7 @@ fn ReadingView() -> impl IntoView {
                     let src = format!("data:{};base64,{}", audio.mime, audio.audio_base64);
                     view! {
                         <div class="player">
-                            <audio node_ref=audio_ref src=src preload="auto" on:timeupdate=on_timeupdate on:ended=on_ended></audio>
+                            <audio node_ref=audio_ref src=src preload="auto" on:ended=on_ended></audio>
                             <div class="controls">
                                 <button on:click=move |_| { if let Some(el) = audio_ref.get() { let _ = el.play(); } }>
                                     "Play"

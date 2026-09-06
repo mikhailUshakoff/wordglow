@@ -12,13 +12,22 @@ mod bindings;
 fn main() {
     let conn = wordglow_core::db::open_default().expect("failed to open wordglow.db");
 
+    dotenvy::dotenv().ok();
+    let ollama_config: commands::OllamaConfig =
+        envy::from_env().expect("reading OLLAMA_URL / OLLAMA_MODEL from the environment");
+
     tauri::Builder::default()
         .manage(commands::DbState(std::sync::Mutex::new(conn)))
+        .manage(ollama_config)
         .invoke_handler(tauri::generate_handler![
             commands::list_books,
             commands::list_lessons,
             commands::get_lesson,
-            commands::get_lesson_audio
+            commands::get_lesson_audio,
+            commands::save_word,
+            commands::remove_word,
+            commands::list_dictionary,
+            commands::translate_word
         ])
         .run(tauri::generate_context!())
         .expect("error while running the Tauri application");

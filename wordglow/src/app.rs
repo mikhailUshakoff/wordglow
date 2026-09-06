@@ -6,7 +6,7 @@ use leptos::task::spawn_local;
 use serde::Serialize;
 
 use crate::bindings::{invoke, invoke0};
-use crate::dto::{BookDto, LessonAudioDto, LessonDetailDto, LessonDto, LessonStatus};
+use crate::dto::{BookDto, DictionaryEntryDto, LessonAudioDto, LessonDetailDto, LessonDto, LessonStatus};
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -20,6 +20,25 @@ struct LessonIdArgs {
     lesson_id: String,
 }
 
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct TranslateArgs {
+    word: String,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct SaveWordArgs {
+    word: String,
+    lesson_id: Option<String>,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct RemoveWordArgs {
+    id: i64,
+}
+
 /// Shared reactive state for the whole app, provided as a Leptos context so
 /// nested views (book list, lesson list, reader) don't need long prop lists.
 #[derive(Clone, Copy)]
@@ -30,6 +49,7 @@ struct AppState {
     selected_lesson: RwSignal<Option<LessonDto>>,
     statuses: RwSignal<HashMap<String, LessonStatus>>,
     error: RwSignal<Option<String>>,
+    showing_vocabulary: RwSignal<bool>,
 }
 
 fn state() -> AppState {
@@ -45,6 +65,7 @@ pub fn App() -> impl IntoView {
         selected_lesson: RwSignal::new(None),
         statuses: RwSignal::new(HashMap::new()),
         error: RwSignal::new(None),
+        showing_vocabulary: RwSignal::new(false),
     };
     provide_context(state);
 
@@ -61,18 +82,34 @@ pub fn App() -> impl IntoView {
             {move || {
                 state.error.get().map(|message| view! { <p class="error">{message}</p> })
             }}
-            <Show
-                when=move || state.selected_lesson.get().is_none()
-                fallback=|| view! { <ReadingView /> }
-            >
-                <Show
-                    when=move || state.selected_book.get().is_none()
-                    fallback=|| view! { <LessonList /> }
-                >
-                    <BookList />
-                </Show>
+            <Show when=move || !state.showing_vocabulary.get()>
+                <button class="nav-link" on:click=move |_| state.showing_vocabulary.set(true)>
+                    "Vocabulary"
+                </button>
+            </Show>
+            <Show when=move || state.showing_vocabulary.get() fallback=|| view! { <Library /> }>
+                <VocabularyView />
             </Show>
         </div>
+    }
+}
+
+#[component]
+fn Library() -> impl IntoView {
+    let state = state();
+
+    view! {
+        <Show
+            when=move || state.selected_lesson.get().is_none()
+            fallback=|| view! { <ReadingView /> }
+        >
+            <Show
+                when=move || state.selected_book.get().is_none()
+                fallback=|| view! { <LessonList /> }
+            >
+                <BookList />
+            </Show>
+        </Show>
     }
 }
 
@@ -163,15 +200,114 @@ fn LessonRow(lesson: LessonDto) -> impl IntoView {
 }
 
 #[component]
+fn VocabularyView() -> impl IntoView {
+    let state = state();
+    let entries = RwSignal::new(Vec::<DictionaryEntryDto>::new());
+
+    spawn_local(async move {
+        match invoke0::<Vec<DictionaryEntryDto>>("list_dictionary").await {
+            // Always start with translations hidden, even if a past visit (or
+            // the reader's word menu) already cached one on the backend —
+            // re-opening this tab should require a fresh "Translate" click.
+            Ok(list) => entries.set(
+                list.into_iter()
+                    .map(|entry| DictionaryEntryDto { translation: None, ..entry })
+                    .collect(),
+            ),
+            Err(e) => state.error.set(Some(e)),
+        }
+    });
+
+    view! {
+        <div>
+            <button class="back-link" on:click=move |_| state.showing_vocabulary.set(false)>
+                "< Back"
+            </button>
+            <h2>"Vocabulary"</h2>
+            <Show when=move || entries.get().is_empty()>
+                <p>"No words saved yet — click a word while reading to save it."</p>
+            </Show>
+            <ul class="dictionary-list">
+                {move || {
+                    entries
+                        .get()
+                        .into_iter()
+                        .map(|entry| view! { <DictionaryRow entry=entry entries=entries /> })
+                        .collect_view()
+                }}
+            </ul>
+        </div>
+    }
+}
+
+#[component]
+fn DictionaryRow(entry: DictionaryEntryDto, entries: RwSignal<Vec<DictionaryEntryDto>>) -> impl IntoView {
+    let state = state();
+    let id_for_translate = entry.id.clone();
+    let word_for_translate = entry.word.clone();
+    let id_for_remove = entry.id.clone();
+
+    let on_translate = move |_| {
+        let id = id_for_translate.clone();
+        let word = word_for_translate.clone();
+        spawn_local(async move {
+            match invoke::<String>("translate_word", TranslateArgs { word }).await {
+                Ok(translation) => entries.update(|list| {
+                    if let Some(e) = list.iter_mut().find(|e| e.id == id) {
+                        e.translation = Some(translation);
+                    }
+                }),
+                Err(e) => state.error.set(Some(e)),
+            }
+        });
+    };
+
+    let on_remove = move |_| {
+        let id = id_for_remove.clone();
+        spawn_local(async move {
+            match invoke::<()>("remove_word", RemoveWordArgs { id: id.clone() }).await {
+                Ok(()) => entries.update(|list| list.retain(|e| e.id != id)),
+                Err(e) => state.error.set(Some(e)),
+            }
+        });
+    };
+
+    view! {
+        <li class="dictionary-row">
+            <span class="word">{entry.word.clone()}</span>
+            {match entry.translation.clone() {
+                Some(t) => view! { <span class="translation">{t}</span> }.into_any(),
+                None => view! {
+                    <button class="translate-btn" on:click=on_translate>
+                        "Translate"
+                    </button>
+                }
+                    .into_any(),
+            }}
+            <button class="remove-btn" on:click=on_remove>
+                "Remove"
+            </button>
+        </li>
+    }
+}
+
+#[component]
 fn ReadingView() -> impl IntoView {
     let state = state();
     let lesson_id = state.selected_lesson.get_untracked().map(|l| l.id).unwrap_or_default();
+    let lesson_id_for_save = lesson_id.clone();
 
     let detail = RwSignal::new(None::<LessonDetailDto>);
     let audio_info = RwSignal::new(None::<LessonAudioDto>);
     let current_word = RwSignal::new(None::<usize>);
     let playback_rate = RwSignal::new(1.0_f64);
     let audio_ref = NodeRef::<html::Audio>::new();
+
+    // Which word's action menu (if any) is open, plus its transient
+    // translate/save results — reset whenever a different word is clicked.
+    let word_menu = RwSignal::new(None::<usize>);
+    let word_translation = RwSignal::new(None::<String>);
+    let word_saved = RwSignal::new(false);
 
     {
         let lesson_id = lesson_id.clone();
@@ -319,14 +455,98 @@ fn ReadingView() -> impl IntoView {
                         .enumerate()
                         .map(|(i, word)| {
                             let active = move || current_word.get() == Some(i);
+                            let word_for_menu = word.clone();
+                            let word_for_translate = word.clone();
+                            let word_for_save = word.clone();
+                            let lesson_id_for_save = lesson_id_for_save.clone();
                             view! {
-                                <span
-                                    class:word-active=active
-                                    class="word"
-                                    on:click=move |_| seek_to_word(i)
-                                >
-                                    {word}
-                                    " "
+                                <span class="word-wrap">
+                                    <span
+                                        class:word-active=active
+                                        class="word"
+                                        on:click=move |_| {
+                                            if let Some(el) = audio_ref.get() {
+                                                let _ = el.pause();
+                                            }
+                                            word_menu.set(Some(i));
+                                            word_translation.set(None);
+                                            word_saved.set(false);
+                                        }
+                                    >
+                                        {word}
+                                        " "
+                                    </span>
+                                    {move || {
+                                        let word_for_menu = word_for_menu.clone();
+                                        let word_for_translate = word_for_translate.clone();
+                                        let word_for_save = word_for_save.clone();
+                                        let lesson_id_for_save = lesson_id_for_save.clone();
+                                        (word_menu.get() == Some(i)).then(move || {
+                                            view! {
+                                                <div class="word-menu">
+                                                    <button
+                                                        class="word-menu-close"
+                                                        on:click=move |_| {
+                                                            word_menu.set(None);
+                                                            word_translation.set(None);
+                                                            word_saved.set(false);
+                                                        }
+                                                    >
+                                                        "\u{d7}"
+                                                    </button>
+                                                    <p class="word-menu-word">{word_for_menu}</p>
+                                                    <div class="word-menu-actions">
+                                                        <button on:click=move |_| {
+                                                            seek_to_word(i);
+                                                            word_menu.set(None);
+                                                            word_translation.set(None);
+                                                            word_saved.set(false);
+                                                        }>
+                                                            "Continue from here"
+                                                        </button>
+                                                        <button on:click=move |_| {
+                                                            let word = word_for_translate.clone();
+                                                            spawn_local(async move {
+                                                                match invoke::<String>("translate_word", TranslateArgs { word }).await {
+                                                                    Ok(t) => word_translation.set(Some(t)),
+                                                                    Err(e) => state.error.set(Some(e)),
+                                                                }
+                                                            });
+                                                        }>
+                                                            "Translate"
+                                                        </button>
+                                                        <button on:click=move |_| {
+                                                            let word = word_for_save.clone();
+                                                            let lesson_id = lesson_id_for_save.clone();
+                                                            spawn_local(async move {
+                                                                match invoke::<DictionaryEntryDto>(
+                                                                    "save_word",
+                                                                    SaveWordArgs { word, lesson_id: Some(lesson_id) },
+                                                                )
+                                                                    .await
+                                                                {
+                                                                    Ok(_) => word_saved.set(true),
+                                                                    Err(e) => state.error.set(Some(e)),
+                                                                }
+                                                            });
+                                                        }>
+                                                            "Save word"
+                                                        </button>
+                                                    </div>
+                                                    {move || {
+                                                        word_translation
+                                                            .get()
+                                                            .map(|t| view! { <p class="word-menu-translation">{t}</p> })
+                                                    }}
+                                                    {move || {
+                                                        word_saved
+                                                            .get()
+                                                            .then(|| view! { <p class="word-menu-saved">"Saved to vocabulary"</p> })
+                                                    }}
+                                                </div>
+                                            }
+                                        })
+                                    }}
                                 </span>
                             }
                         })

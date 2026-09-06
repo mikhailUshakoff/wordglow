@@ -45,6 +45,15 @@ pub struct LessonAudioDto {
     pub stale: bool,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DictionaryEntryDto {
+    pub id: i64,
+    pub word: String,
+    pub translation: Option<String>,
+    pub lesson_id: Option<String>,
+    pub created_at: String,
+}
+
 /// Per-lesson reading status. Session-only for now: nothing in the schema
 /// persists this yet, so it lives in the frontend's own state and resets
 /// every app launch.

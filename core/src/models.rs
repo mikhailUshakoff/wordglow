@@ -40,6 +40,15 @@ pub struct LessonAudio {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DictionaryEntry {
+    pub id: i64,
+    pub word: String,
+    pub translation: Option<String>,
+    pub lesson_id: Option<String>,
+    pub created_at: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Question {
     pub id: String,
     pub lesson_id: String,

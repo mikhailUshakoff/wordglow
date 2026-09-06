@@ -58,7 +58,7 @@ mod tests {
 
         assert_eq!(
             tables,
-            vec!["books", "lesson_audio", "lessons", "questions"]
+            vec!["books", "dictionary", "lesson_audio", "lessons", "questions", "sqlite_sequence"]
         );
     }
 }

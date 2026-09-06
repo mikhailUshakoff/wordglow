@@ -1,5 +1,5 @@
 use rusqlite::{params, Connection, Row};
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 use uuid::Uuid;
 
 use crate::error::{CoreError, Result};
@@ -51,19 +51,6 @@ fn save_all(conn: &Connection, lesson_id: &str, texts: &[String]) -> Result<Vec<
     Ok(questions)
 }
 
-#[derive(Serialize)]
-struct GenerateRequest<'a> {
-    model: &'a str,
-    prompt: String,
-    stream: bool,
-    format: &'static str,
-}
-
-#[derive(Deserialize)]
-struct GenerateResponse {
-    response: String,
-}
-
 #[derive(Deserialize)]
 struct QuestionsPayload {
     questions: Vec<String>,
@@ -90,31 +77,9 @@ pub fn generate_questions(
     model: &str,
     lesson: &Lesson,
 ) -> Result<Vec<Question>> {
-    let request = GenerateRequest {
-        model,
-        prompt: build_prompt(&lesson.text),
-        stream: false,
-        format: "json",
-    };
-
-    let client = reqwest::blocking::Client::new();
-    let mut builder = client
-        .post(format!("{}/api/generate", ollama_url.trim_end_matches('/')))
-        .json(&request);
-    if let Some(api_key) = api_key {
-        builder = builder.bearer_auth(api_key);
-    }
-    let response = builder.send()?;
-
-    if !response.status().is_success() {
-        let status = response.status();
-        let body = response.text().unwrap_or_default();
-        return Err(CoreError::Ollama(format!("request failed ({status}): {body}")));
-    }
-
-    let parsed: GenerateResponse = response.json()?;
-    let payload: QuestionsPayload = serde_json::from_str(&parsed.response)
-        .map_err(|e| CoreError::Ollama(format!("could not parse model response as JSON: {e} (raw: {})", parsed.response)))?;
+    let raw = crate::ollama::call_json(ollama_url, api_key, model, build_prompt(&lesson.text))?;
+    let payload: QuestionsPayload = serde_json::from_str(&raw)
+        .map_err(|e| CoreError::Ollama(format!("could not parse model response as JSON: {e} (raw: {raw})")))?;
 
     if payload.questions.is_empty() {
         return Err(CoreError::Ollama("model returned no questions".into()));

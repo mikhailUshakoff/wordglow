@@ -1,10 +1,12 @@
 pub mod books;
 pub mod db;
+pub mod dictionary;
 pub mod error;
 pub mod hash;
 pub mod lessons;
 pub mod migrations;
 pub mod models;
+pub mod ollama;
 pub mod paths;
 pub mod questions;
 pub mod tts;

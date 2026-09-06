@@ -15,6 +15,8 @@ wordglow_core = { package = "wordglow-core", path = "../core" }
 rusqlite.workspace = true
 tauri = { version = "2.11.5", features = [] }
 base64.workspace = true
+dotenvy.workspace = true
+envy.workspace = true
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 leptos = { version = "0.8.20", features = ["csr"] }

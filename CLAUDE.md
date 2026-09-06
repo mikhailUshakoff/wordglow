@@ -24,15 +24,15 @@ wordglow/
 
 ## Database
 
-One file: `wordglow.db`. No separate content/progress database split — just one SQLite file with content tables (`books`, `lessons`, `lesson_audio`, `questions`) and, later, progress tables (`dictionary`, `activity_log`, etc.) side by side.
+One file: `wordglow.db`. No separate content/progress database split — just one SQLite file with content tables (`books`, `lessons`, `lesson_audio`, `questions`), the `dictionary` (vocabulary/word-list) table, and, later, further progress tables (`activity_log`, etc.) side by side.
 
 The safety property that a split would give (importing content can't clobber progress data) doesn't need two files — it just needs `merge_content()` to only ever touch the content tables. Keep that rule even though it's all one file.
 
-**For this phase**, only the content tables are needed. Don't create the progress tables (`dictionary`, `activity_log`, `quiz_attempts`, `lesson_progress`, `badges_earned`, `user_stats`) yet — they belong to later phases (dictionary/quiz/gamification), so leave them out of the migrations for now.
+**For this phase**, the content tables plus `dictionary` are needed. Don't create the remaining progress tables (`activity_log`, `quiz_attempts`, `lesson_progress`, `badges_earned`, `user_stats`) yet — they belong to later phases (quiz/gamification), so leave them out of the migrations for now.
 
 ## Current implementation focus
 
-Build only what's listed below. Don't implement dictionary, translation, quiz-taking/scoring, streaks, XP, or badges yet — those come in a later phase.
+Build only what's listed below. Don't implement quiz-taking/scoring, streaks, XP, or badges yet — those come in a later phase. Spaced repetition on the word list is also a later phase — the vocabulary list itself (save/translate/remove) is in scope now.
 
 ### Teacher CLI (`teacher-cli`)
 
@@ -56,11 +56,16 @@ Build only what's listed below. Don't implement dictionary, translation, quiz-ta
 - Select a lesson to read
 - Play / pause / stop, seek, adjustable playback speed
 - Highlight the currently-spoken word, synced to the cached word timepoints
-- Click a word anywhere in the text to jump playback there (resume-from-cursor)
+- Click a word anywhere in the text pauses playback and opens a per-word action menu: continue playing from that word, translate it to Russian (via Ollama), or save it to the vocabulary list
 
-Note: per-lesson status and resume-from-cursor only need in-memory/session state for now — the progress tables that would persist this aren't created yet. Persisting "last position" and "completed" across app restarts is a later-phase feature.
+Note: per-lesson status and resume-from-cursor only need in-memory/session state for now — the remaining progress tables that would persist this aren't created yet. Persisting "last position" and "completed" across app restarts is a later-phase feature.
 
-## Data model for this phase (`wordglow.db` — content tables only)
+### Wordglow app — Vocabulary
+
+- A "Vocabulary" screen, reachable from the library, lists every saved word
+- Per word: view its (cached) Russian translation, or remove it from the list
+
+## Data model for this phase (`wordglow.db` — content tables + dictionary)
 
 ```sql
 CREATE TABLE books (
@@ -99,6 +104,16 @@ CREATE TABLE questions (
     question_text  TEXT NOT NULL,     -- open/free-response, no choices or correct_index
     created_at     TEXT NOT NULL
 );
+
+CREATE TABLE dictionary (
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,  -- progress table: plain autoincrement, not UUID
+    word         TEXT NOT NULL,
+    translation  TEXT,               -- cached Russian translation; NULL until first looked up
+    lesson_id    TEXT REFERENCES lessons(id),
+    created_at   TEXT NOT NULL
+);
+-- word is unique case-insensitively (UNIQUE INDEX ... COLLATE NOCASE) — saving
+-- an already-saved word is a no-op that returns the existing entry.
 ```
 
 ## Conventions
@@ -112,15 +127,15 @@ CREATE TABLE questions (
 ## External services
 
 - **Google Cloud TTS**: real API (not the free `gTTS` wrapper). Send SSML with a `<mark>` per word; the response includes audio plus timepoints for each mark — store both.
-- **Ollama**: remote HTTP API (default `http://localhost:11434`). Used only by `generate-questions`.
+- **Ollama**: remote HTTP API (default `http://localhost:11434`). Used by `generate-questions`, and by the wordglow app's word-translation feature (translate to Russian).
 
 ## Out of scope for now
 
-- Dictionary, word translation, spaced repetition
 - Quiz-taking / scoring (questions are generated and stored, but not yet surfaced as a gradable quiz)
 - Streak calendar, XP, levels, badges
+- Spaced repetition / review scheduling for the vocabulary list
 - `edit-lesson` (only `delete-lesson` exists right now)
-- The progress tables (`dictionary`, `activity_log`, `quiz_attempts`, `lesson_progress`, `badges_earned`, `user_stats`) — not created yet, not part of this phase
+- The remaining progress tables (`activity_log`, `quiz_attempts`, `lesson_progress`, `badges_earned`, `user_stats`) — not created yet, not part of this phase
 
 ## Suggested order for this phase
 
@@ -130,3 +145,4 @@ CREATE TABLE questions (
 4. `generate-questions` (Ollama call)
 5. `wordglow` app: Library (browse)
 6. `wordglow` app: Reading & playback (audio player + word highlighting + click-to-seek)
+7. `wordglow` app: Vocabulary (per-word action menu on click, translate via Ollama, saved-words list)

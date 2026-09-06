@@ -1,3 +1,4 @@
 /target
 .env
 /wordglow/dist
+/books-src

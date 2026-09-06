@@ -22,6 +22,38 @@ fn row_to_lesson(row: &Row) -> rusqlite::Result<Lesson> {
 const SELECT_COLUMNS: &str =
     "id, book_id, order_index, title, text, text_hash, created_at, updated_at";
 
+/// Canonicalizes `-`/`—` spacing so a dash always reads as a lead-in to the
+/// word after it: exactly one space before, none after (e.g. "else—was",
+/// "else-was", "else — was" and "else - was" all become "else —was" /
+/// "else -was"). Without this, TTS and the reader's word-highlighting can
+/// tokenize the same dash differently depending on how it was originally
+/// spaced, drifting the highlight out of sync with the audio.
+fn normalize_dashes(text: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    let chars: Vec<char> = text.chars().collect();
+    let mut i = 0;
+    while i < chars.len() {
+        let c = chars[i];
+        if c == '-' || c == '—' {
+            while matches!(out.chars().last(), Some(c) if c.is_whitespace()) {
+                out.pop();
+            }
+            if !out.is_empty() {
+                out.push(' ');
+            }
+            out.push(c);
+            i += 1;
+            while i < chars.len() && chars[i].is_whitespace() {
+                i += 1;
+            }
+        } else {
+            out.push(c);
+            i += 1;
+        }
+    }
+    out
+}
+
 pub fn create(
     conn: &Connection,
     book_id: &str,
@@ -29,6 +61,7 @@ pub fn create(
     text: &str,
     order_index: i64,
 ) -> Result<Lesson> {
+    let text = &normalize_dashes(text);
     let id = Uuid::new_v4().to_string();
     let now = now_iso8601();
     let text_hash = hash_text(text);
@@ -179,6 +212,24 @@ mod tests {
 
         let listed = list_for_book(&conn, &book_id).unwrap();
         assert_eq!(listed.iter().map(|l| &l.id).collect::<Vec<_>>(), vec![&l1.id, &l2.id]);
+    }
+
+    #[test]
+    fn normalize_dashes_makes_every_spacing_variant_agree() {
+        for text in ["else—was", "else-was", "else — was", "else - was"] {
+            assert_eq!(normalize_dashes(text), if text.contains('—') { "else —was" } else { "else -was" });
+        }
+    }
+
+    #[test]
+    fn create_normalizes_dash_spacing_before_hashing() {
+        let conn = test_conn();
+        let book_id = setup_book(&conn);
+
+        let lesson = create(&conn, &book_id, "Ch1", "else—was gone", 0).unwrap();
+
+        assert_eq!(lesson.text, "else —was gone");
+        assert_eq!(lesson.text_hash, crate::hash::hash_text("else —was gone"));
     }
 
     #[test]

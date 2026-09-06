@@ -41,6 +41,12 @@ pub fn create(
     })
 }
 
+pub fn list_all(conn: &Connection) -> Result<Vec<Book>> {
+    let mut stmt = conn.prepare(&format!("SELECT {SELECT_COLUMNS} FROM books ORDER BY title"))?;
+    let rows = stmt.query_map([], row_to_book)?;
+    Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
+}
+
 pub fn get(conn: &Connection, id: &str) -> Result<Option<Book>> {
     conn.query_row(
         &format!("SELECT {SELECT_COLUMNS} FROM books WHERE id = ?1"),
@@ -86,6 +92,16 @@ pub fn resolve(conn: &Connection, reference: &str) -> Result<Book> {
 mod tests {
     use super::*;
     use crate::db::test_conn;
+
+    #[test]
+    fn list_all_orders_by_title() {
+        let conn = test_conn();
+        create(&conn, "Zebra", None, None).unwrap();
+        create(&conn, "Apple", None, None).unwrap();
+
+        let titles: Vec<String> = list_all(&conn).unwrap().into_iter().map(|b| b.title).collect();
+        assert_eq!(titles, vec!["Apple", "Zebra"]);
+    }
 
     #[test]
     fn create_and_resolve_by_id_or_title() {

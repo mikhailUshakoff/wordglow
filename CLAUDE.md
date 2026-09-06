@@ -128,6 +128,5 @@ CREATE TABLE questions (
 2. `teacher-cli`: `add-book`, `add-lesson`, `delete-lesson`, `reorder-lessons`
 3. `generate-tts` (Google Cloud TTS + SSML marks, caching, `text_hash` staleness check)
 4. `generate-questions` (Ollama call)
-5. `export` (package zip)
-6. `wordglow` app: Library (browse + import)
-7. `wordglow` app: Reading & playback (audio player + word highlighting + click-to-seek)
+5. `wordglow` app: Library (browse)
+6. `wordglow` app: Reading & playback (audio player + word highlighting + click-to-seek)

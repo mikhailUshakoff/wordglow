@@ -300,7 +300,7 @@ fn ReadingView() -> impl IntoView {
                                         type="range"
                                         min="0.5"
                                         max="2"
-                                        step="0.25"
+                                        step="0.05"
                                         prop:value=move || playback_rate.get().to_string()
                                         on:input=on_rate_input
                                     />

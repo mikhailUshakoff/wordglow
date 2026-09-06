@@ -46,6 +46,13 @@ pub struct LessonAudioDto {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct QuestionDto {
+    pub id: String,
+    pub order_index: i64,
+    pub question_text: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DictionaryEntryDto {
     pub id: i64,
     pub word: String,

@@ -6,7 +6,7 @@ use leptos::task::spawn_local;
 use serde::Serialize;
 
 use crate::bindings::{invoke, invoke0};
-use crate::dto::{BookDto, DictionaryEntryDto, LessonAudioDto, LessonDetailDto, LessonDto, LessonStatus};
+use crate::dto::{BookDto, DictionaryEntryDto, LessonAudioDto, LessonDetailDto, LessonDto, LessonStatus, QuestionDto};
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -313,6 +313,7 @@ fn ReadingView() -> impl IntoView {
 
     let detail = RwSignal::new(None::<LessonDetailDto>);
     let audio_info = RwSignal::new(None::<LessonAudioDto>);
+    let questions = RwSignal::new(Vec::<QuestionDto>::new());
     let current_word = RwSignal::new(None::<usize>);
     let playback_rate = RwSignal::new(1.0_f64);
     let audio_ref = NodeRef::<html::Audio>::new();
@@ -339,6 +340,17 @@ fn ReadingView() -> impl IntoView {
                 .await
             {
                 Ok(a) => audio_info.set(a),
+                Err(e) => state.error.set(Some(e)),
+            }
+        });
+    }
+    {
+        let lesson_id = lesson_id.clone();
+        spawn_local(async move {
+            match invoke::<Vec<QuestionDto>>("get_lesson_questions", LessonIdArgs { lesson_id: lesson_id.clone() })
+                .await
+            {
+                Ok(q) => questions.set(q),
                 Err(e) => state.error.set(Some(e)),
             }
         });
@@ -616,6 +628,21 @@ fn ReadingView() -> impl IntoView {
                         .collect_view()
                 }}
             </div>
+
+            <Show when=move || !questions.get().is_empty()>
+                <div class="lesson-questions">
+                    <h3>"Comprehension questions"</h3>
+                    <ol>
+                        {move || {
+                            questions
+                                .get()
+                                .into_iter()
+                                .map(|q| view! { <li>{q.question_text}</li> })
+                                .collect_view()
+                        }}
+                    </ol>
+                </div>
+            </Show>
         </div>
     }
 }

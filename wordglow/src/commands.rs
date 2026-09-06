@@ -6,7 +6,8 @@ use rusqlite::Connection;
 use tauri::State;
 
 use crate::dto::{
-    BookDto, DictionaryEntryDto, LessonAudioDto, LessonDetailDto, LessonDto, LessonStatus, WordTimepointDto,
+    BookDto, DictionaryEntryDto, LessonAudioDto, LessonDetailDto, LessonDto, LessonStatus, QuestionDto,
+    WordTimepointDto,
 };
 
 pub struct DbState(pub Mutex<Connection>);
@@ -141,6 +142,19 @@ pub fn get_lesson_audio(state: State<DbState>, lesson_id: String) -> Result<Opti
         generated_at: audio.generated_at,
         stale: audio.text_hash_at_gen != lesson.text_hash,
     }))
+}
+
+#[tauri::command]
+pub fn get_lesson_questions(state: State<DbState>, lesson_id: String) -> Result<Vec<QuestionDto>, String> {
+    let conn = state.0.lock().map_err(|e| e.to_string())?;
+    wordglow_core::questions::list_for_lesson(&conn, &lesson_id)
+        .map(|questions| {
+            questions
+                .into_iter()
+                .map(|q| QuestionDto { id: q.id, order_index: q.order_index, question_text: q.question_text })
+                .collect()
+        })
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]

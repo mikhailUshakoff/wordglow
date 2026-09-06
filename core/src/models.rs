@@ -18,6 +18,7 @@ pub struct Lesson {
     pub title: String,
     pub text: String,
     pub text_hash: String,
+    pub status: LessonStatus,
     pub created_at: String,
     pub updated_at: String,
 }
@@ -37,6 +38,33 @@ pub struct LessonAudio {
     pub word_timepoints: Vec<WordTimepoint>,
     pub generated_at: String,
     pub text_hash_at_gen: String,
+}
+
+/// Per-lesson reading status, persisted in the `lessons.status` column.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum LessonStatus {
+    NotStarted,
+    InProgress,
+    Completed,
+}
+
+impl LessonStatus {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            LessonStatus::NotStarted => "not_started",
+            LessonStatus::InProgress => "in_progress",
+            LessonStatus::Completed => "completed",
+        }
+    }
+
+    pub fn from_str(s: &str) -> Option<Self> {
+        match s {
+            "not_started" => Some(LessonStatus::NotStarted),
+            "in_progress" => Some(LessonStatus::InProgress),
+            "completed" => Some(LessonStatus::Completed),
+            _ => None,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

@@ -24,11 +24,13 @@ wordglow/
 
 ## Database
 
-One file: `wordglow.db`. No separate content/progress database split — just one SQLite file with content tables (`books`, `lessons`, `lesson_audio`, `questions`), the `dictionary` (vocabulary/word-list) table, and, later, further progress tables (`activity_log`, etc.) side by side.
+One file: `wordglow.db`. No separate content/progress database split — just one SQLite file with content tables (`books`, `lessons`, `lesson_audio`, `questions`), the `dictionary` (vocabulary/word-list) table, and, later, further progress tables (`activity_log`, etc.) side by side. Per-lesson reading status lives directly on `lessons.status` rather than a separate table.
 
-The safety property that a split would give (importing content can't clobber progress data) doesn't need two files — it just needs `merge_content()` to only ever touch the content tables. Keep that rule even though it's all one file.
+The safety property that a split would give (importing content can't clobber progress data) doesn't need two files — it just needs `merge_content()` to only ever touch the content columns. Since `lessons.status` is progress data living on a content row, `merge_content()` must upsert lessons without touching the `status` column (explicit column list, never a blanket overwrite).
 
-**For this phase**, the content tables plus `dictionary` are needed. Don't create the remaining progress tables (`activity_log`, `quiz_attempts`, `lesson_progress`, `badges_earned`, `user_stats`) yet — they belong to later phases (quiz/gamification), so leave them out of the migrations for now.
+Pre-release, there's no installed base to migrate — `MIGRATIONS` is a single squashed migration. Once this ships, go back to append-only migrations (never edit a released one).
+
+**For this phase**, the content tables plus `dictionary` are needed. Don't create the remaining progress tables (`activity_log`, `quiz_attempts`, `badges_earned`, `user_stats`) yet — they belong to later phases (quiz/gamification), so leave them out of the migrations for now.
 
 ## Current implementation focus
 
@@ -58,7 +60,7 @@ Build only what's listed below. Don't implement quiz-taking/scoring, streaks, XP
 - Highlight the currently-spoken word, synced to the cached word timepoints
 - Click a word anywhere in the text pauses playback and opens a per-word action menu: continue playing from that word, translate it to Russian (via Ollama), or save it to the vocabulary list
 
-Note: per-lesson status and resume-from-cursor only need in-memory/session state for now — the remaining progress tables that would persist this aren't created yet. Persisting "last position" and "completed" across app restarts is a later-phase feature.
+Per-lesson status (not started / in progress / completed) is persisted in `lessons.status` and survives app restarts. Resume-from-cursor position is still in-memory/session-only for now — persisting "last position" across restarts is a later-phase feature.
 
 ### Wordglow app — Vocabulary
 
@@ -84,6 +86,7 @@ CREATE TABLE lessons (
     title        TEXT NOT NULL,
     text         TEXT NOT NULL,
     text_hash    TEXT NOT NULL,     -- hash of `text`; mismatch means cached audio/questions are stale
+    status       TEXT NOT NULL DEFAULT 'not_started',  -- 'not_started' | 'in_progress' | 'completed'; progress data on a content row, see note above
     created_at   TEXT NOT NULL,
     updated_at   TEXT NOT NULL
 );
@@ -135,7 +138,8 @@ CREATE TABLE dictionary (
 - Streak calendar, XP, levels, badges
 - Spaced repetition / review scheduling for the vocabulary list
 - `edit-lesson` (only `delete-lesson` exists right now)
-- The remaining progress tables (`activity_log`, `quiz_attempts`, `lesson_progress`, `badges_earned`, `user_stats`) — not created yet, not part of this phase
+- The remaining progress tables (`activity_log`, `quiz_attempts`, `badges_earned`, `user_stats`) — not created yet, not part of this phase
+- Persisting resume-from-cursor position across restarts (lesson status is persisted; last-read position is not)
 
 ## Suggested order for this phase
 

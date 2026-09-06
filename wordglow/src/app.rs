@@ -39,6 +39,13 @@ struct RemoveWordArgs {
     id: i64,
 }
 
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct SetLessonStatusArgs {
+    lesson_id: String,
+    status: LessonStatus,
+}
+
 /// Shared reactive state for the whole app, provided as a Leptos context so
 /// nested views (book list, lesson list, reader) don't need long prop lists.
 #[derive(Clone, Copy)]
@@ -72,6 +79,13 @@ pub fn App() -> impl IntoView {
     spawn_local(async move {
         match invoke0::<Vec<BookDto>>("list_books").await {
             Ok(list) => state.books.set(list),
+            Err(e) => state.error.set(Some(e)),
+        }
+    });
+
+    spawn_local(async move {
+        match invoke0::<HashMap<String, LessonStatus>>("get_lesson_statuses").await {
+            Ok(statuses) => state.statuses.set(statuses),
             Err(e) => state.error.set(Some(e)),
         }
     });
@@ -330,10 +344,25 @@ fn ReadingView() -> impl IntoView {
         });
     }
 
-    // Opening a lesson counts as starting it.
-    state.statuses.update(|m| {
-        m.entry(lesson_id.clone()).or_insert(LessonStatus::InProgress);
-    });
+    // Opening a lesson counts as starting it — but don't downgrade a lesson
+    // that's already in progress or completed.
+    let was_not_started = !matches!(
+        state.statuses.get_untracked().get(&lesson_id),
+        Some(LessonStatus::InProgress) | Some(LessonStatus::Completed)
+    );
+    if was_not_started {
+        state.statuses.update(|m| {
+            m.insert(lesson_id.clone(), LessonStatus::InProgress);
+        });
+        let lesson_id = lesson_id.clone();
+        spawn_local(async move {
+            let _ = invoke::<()>(
+                "set_lesson_status",
+                SetLessonStatusArgs { lesson_id, status: LessonStatus::InProgress },
+            )
+            .await;
+        });
+    }
 
     let words = move || {
         detail
@@ -370,7 +399,14 @@ fn ReadingView() -> impl IntoView {
     let on_ended = move |_| {
         let lesson_id = state.selected_lesson.get_untracked().map(|l| l.id).unwrap_or_default();
         state.statuses.update(|m| {
-            m.insert(lesson_id, LessonStatus::Completed);
+            m.insert(lesson_id.clone(), LessonStatus::Completed);
+        });
+        spawn_local(async move {
+            let _ = invoke::<()>(
+                "set_lesson_status",
+                SetLessonStatusArgs { lesson_id, status: LessonStatus::Completed },
+            )
+            .await;
         });
     };
 

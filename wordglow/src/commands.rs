@@ -1,10 +1,13 @@
+use std::collections::HashMap;
 use std::sync::Mutex;
 
 use base64::{engine::general_purpose::STANDARD, Engine};
 use rusqlite::Connection;
 use tauri::State;
 
-use crate::dto::{BookDto, DictionaryEntryDto, LessonAudioDto, LessonDetailDto, LessonDto, WordTimepointDto};
+use crate::dto::{
+    BookDto, DictionaryEntryDto, LessonAudioDto, LessonDetailDto, LessonDto, LessonStatus, WordTimepointDto,
+};
 
 pub struct DbState(pub Mutex<Connection>);
 
@@ -38,6 +41,22 @@ fn book_to_dto(book: wordglow_core::models::Book) -> BookDto {
         title: book.title,
         author: book.author,
         language: book.language,
+    }
+}
+
+fn lesson_status_to_dto(status: wordglow_core::models::LessonStatus) -> LessonStatus {
+    match status {
+        wordglow_core::models::LessonStatus::NotStarted => LessonStatus::NotStarted,
+        wordglow_core::models::LessonStatus::InProgress => LessonStatus::InProgress,
+        wordglow_core::models::LessonStatus::Completed => LessonStatus::Completed,
+    }
+}
+
+fn lesson_status_to_core(status: LessonStatus) -> wordglow_core::models::LessonStatus {
+    match status {
+        LessonStatus::NotStarted => wordglow_core::models::LessonStatus::NotStarted,
+        LessonStatus::InProgress => wordglow_core::models::LessonStatus::InProgress,
+        LessonStatus::Completed => wordglow_core::models::LessonStatus::Completed,
     }
 }
 
@@ -122,6 +141,20 @@ pub fn get_lesson_audio(state: State<DbState>, lesson_id: String) -> Result<Opti
         generated_at: audio.generated_at,
         stale: audio.text_hash_at_gen != lesson.text_hash,
     }))
+}
+
+#[tauri::command]
+pub fn get_lesson_statuses(state: State<DbState>) -> Result<HashMap<String, LessonStatus>, String> {
+    let conn = state.0.lock().map_err(|e| e.to_string())?;
+    wordglow_core::lessons::list_all_statuses(&conn)
+        .map(|map| map.into_iter().map(|(id, s)| (id, lesson_status_to_dto(s))).collect())
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn set_lesson_status(state: State<DbState>, lesson_id: String, status: LessonStatus) -> Result<(), String> {
+    let conn = state.0.lock().map_err(|e| e.to_string())?;
+    wordglow_core::lessons::set_status(&conn, &lesson_id, lesson_status_to_core(status)).map_err(|e| e.to_string())
 }
 
 #[tauri::command]

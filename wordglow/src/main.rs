@@ -24,6 +24,8 @@ fn main() {
             commands::list_lessons,
             commands::get_lesson,
             commands::get_lesson_audio,
+            commands::get_lesson_statuses,
+            commands::set_lesson_status,
             commands::save_word,
             commands::remove_word,
             commands::list_dictionary,

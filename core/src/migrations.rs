@@ -1,7 +1,7 @@
 /// Each entry is applied once, in order, and bumps `PRAGMA user_version`
 /// by one. Add new migrations by appending to this slice — never edit an
 /// already-released one.
-pub const MIGRATIONS: &[&str] = &[MIGRATION_0001_INIT, MIGRATION_0002_DICTIONARY];
+pub const MIGRATIONS: &[&str] = &[MIGRATION_0001_INIT];
 
 const MIGRATION_0001_INIT: &str = r#"
 CREATE TABLE books (
@@ -20,6 +20,7 @@ CREATE TABLE lessons (
     title        TEXT NOT NULL,
     text         TEXT NOT NULL,
     text_hash    TEXT NOT NULL,
+    status       TEXT NOT NULL DEFAULT 'not_started',
     created_at   TEXT NOT NULL,
     updated_at   TEXT NOT NULL
 );
@@ -40,9 +41,7 @@ CREATE TABLE questions (
     question_text  TEXT NOT NULL,
     created_at     TEXT NOT NULL
 );
-"#;
 
-const MIGRATION_0002_DICTIONARY: &str = r#"
 CREATE TABLE dictionary (
     id           INTEGER PRIMARY KEY AUTOINCREMENT,
     word         TEXT NOT NULL,

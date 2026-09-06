@@ -3,10 +3,11 @@ use uuid::Uuid;
 
 use crate::error::{CoreError, Result};
 use crate::hash::hash_text;
-use crate::models::Lesson;
+use crate::models::{Lesson, LessonStatus};
 use crate::now_iso8601;
 
 fn row_to_lesson(row: &Row) -> rusqlite::Result<Lesson> {
+    let status: String = row.get(6)?;
     Ok(Lesson {
         id: row.get(0)?,
         book_id: row.get(1)?,
@@ -14,13 +15,14 @@ fn row_to_lesson(row: &Row) -> rusqlite::Result<Lesson> {
         title: row.get(3)?,
         text: row.get(4)?,
         text_hash: row.get(5)?,
-        created_at: row.get(6)?,
-        updated_at: row.get(7)?,
+        status: LessonStatus::from_str(&status).unwrap_or(LessonStatus::NotStarted),
+        created_at: row.get(7)?,
+        updated_at: row.get(8)?,
     })
 }
 
 const SELECT_COLUMNS: &str =
-    "id, book_id, order_index, title, text, text_hash, created_at, updated_at";
+    "id, book_id, order_index, title, text, text_hash, status, created_at, updated_at";
 
 /// Canonicalizes `-`/`—` spacing so a dash always reads as a lead-in to the
 /// word after it: exactly one space before, none after (e.g. "else—was",
@@ -66,9 +68,9 @@ pub fn create(
     let now = now_iso8601();
     let text_hash = hash_text(text);
     conn.execute(
-        "INSERT INTO lessons (id, book_id, order_index, title, text, text_hash, created_at, updated_at) \
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?7)",
-        params![id, book_id, order_index, title, text, text_hash, now],
+        "INSERT INTO lessons (id, book_id, order_index, title, text, text_hash, status, created_at, updated_at) \
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?8)",
+        params![id, book_id, order_index, title, text, text_hash, LessonStatus::NotStarted.as_str(), now],
     )?;
     Ok(Lesson {
         id,
@@ -77,9 +79,35 @@ pub fn create(
         title: title.to_string(),
         text: text.to_string(),
         text_hash,
+        status: LessonStatus::NotStarted,
         created_at: now.clone(),
         updated_at: now,
     })
+}
+
+pub fn set_status(conn: &Connection, lesson_id: &str, status: LessonStatus) -> Result<()> {
+    let changed = conn.execute(
+        "UPDATE lessons SET status = ?1 WHERE id = ?2",
+        params![status.as_str(), lesson_id],
+    )?;
+    if changed == 0 {
+        return Err(CoreError::NotFound(format!("lesson '{lesson_id}'")));
+    }
+    Ok(())
+}
+
+/// Every lesson's status, keyed by lesson id — used to hydrate the reader's
+/// status badges across every book without a separate per-book fetch.
+pub fn list_all_statuses(conn: &Connection) -> Result<std::collections::HashMap<String, LessonStatus>> {
+    let mut stmt = conn.prepare("SELECT id, status FROM lessons")?;
+    let rows = stmt.query_map([], |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)))?;
+
+    let mut map = std::collections::HashMap::new();
+    for row in rows {
+        let (id, status) = row?;
+        map.insert(id, LessonStatus::from_str(&status).unwrap_or(LessonStatus::NotStarted));
+    }
+    Ok(map)
 }
 
 /// Like [`create`], but appends after the book's current last lesson
@@ -198,6 +226,26 @@ mod tests {
 
     fn setup_book(conn: &Connection) -> String {
         books::create(conn, "Dune", None, None).unwrap().id
+    }
+
+    #[test]
+    fn create_defaults_to_not_started_status() {
+        let conn = test_conn();
+        let book_id = setup_book(&conn);
+        let lesson = create(&conn, &book_id, "Ch1", "hello world", 0).unwrap();
+        assert_eq!(lesson.status, LessonStatus::NotStarted);
+    }
+
+    #[test]
+    fn set_status_persists_and_lists() {
+        let conn = test_conn();
+        let book_id = setup_book(&conn);
+        let lesson = create(&conn, &book_id, "Ch1", "hello world", 0).unwrap();
+
+        set_status(&conn, &lesson.id, LessonStatus::Completed).unwrap();
+
+        assert_eq!(get(&conn, &lesson.id).unwrap().unwrap().status, LessonStatus::Completed);
+        assert_eq!(list_all_statuses(&conn).unwrap().get(&lesson.id), Some(&LessonStatus::Completed));
     }
 
     #[test]

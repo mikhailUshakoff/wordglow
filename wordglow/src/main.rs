@@ -14,7 +14,12 @@ fn main() {
 
     tauri::Builder::default()
         .manage(commands::DbState(std::sync::Mutex::new(conn)))
-        .invoke_handler(tauri::generate_handler![commands::list_books, commands::list_lessons])
+        .invoke_handler(tauri::generate_handler![
+            commands::list_books,
+            commands::list_lessons,
+            commands::get_lesson,
+            commands::get_lesson_audio
+        ])
         .run(tauri::generate_context!())
         .expect("error while running the Tauri application");
 }

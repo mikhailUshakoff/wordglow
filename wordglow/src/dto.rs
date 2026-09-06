@@ -16,6 +16,35 @@ pub struct LessonDto {
     pub title: String,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LessonDetailDto {
+    pub id: String,
+    pub book_id: String,
+    pub order_index: i64,
+    pub title: String,
+    pub text: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct WordTimepointDto {
+    pub word: String,
+    pub start_ms: u64,
+    pub end_ms: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LessonAudioDto {
+    /// Base64-encoded audio bytes (small enough per-lesson to ship over IPC
+    /// without a custom asset protocol).
+    pub audio_base64: String,
+    pub mime: String,
+    pub voice: String,
+    pub word_timepoints: Vec<WordTimepointDto>,
+    pub generated_at: String,
+    /// True when the lesson's text has changed since this audio was generated.
+    pub stale: bool,
+}
+
 /// Per-lesson reading status. Session-only for now: nothing in the schema
 /// persists this yet, so it lives in the frontend's own state and resets
 /// every app launch.

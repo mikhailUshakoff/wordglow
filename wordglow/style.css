@@ -76,3 +76,53 @@ h1 {
   background: #d7f2d9;
   color: #1e6b23;
 }
+
+.reader .player {
+  background: white;
+  border: 1px solid #ddd;
+  border-radius: 8px;
+  padding: 0.75rem 1rem;
+  margin-bottom: 1rem;
+}
+
+.reader .controls {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.reader .controls button {
+  padding: 0.35rem 0.9rem;
+  border-radius: 6px;
+  border: 1px solid #ccc;
+  background: #f0eee9;
+  cursor: pointer;
+}
+
+.reader .speed {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.85rem;
+  color: #555;
+}
+
+.lesson-text {
+  line-height: 2;
+  font-size: 1.1rem;
+}
+
+.word {
+  cursor: pointer;
+  border-radius: 4px;
+  padding: 0.05rem 0.1rem;
+}
+
+.word:hover {
+  background: #eee;
+}
+
+.word-active {
+  background: #fde9c8;
+}

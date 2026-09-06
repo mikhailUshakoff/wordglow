@@ -118,7 +118,7 @@ fn word_timepoints_from_marks(words: &[String], timepoints: &[Timepoint]) -> Vec
         .collect()
 }
 
-fn get_audio(conn: &Connection, lesson_id: &str) -> Result<Option<LessonAudio>> {
+pub fn get_audio(conn: &Connection, lesson_id: &str) -> Result<Option<LessonAudio>> {
     let row = conn
         .query_row(
             "SELECT lesson_id, audio_path, voice, word_timepoints, generated_at, text_hash_at_gen \

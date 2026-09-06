@@ -1,30 +1,57 @@
 use std::collections::HashMap;
 
+use leptos::html;
 use leptos::prelude::*;
 use leptos::task::spawn_local;
 use serde::Serialize;
 
 use crate::bindings::{invoke, invoke0};
-use crate::dto::{BookDto, LessonDto, LessonStatus};
+use crate::dto::{BookDto, LessonAudioDto, LessonDetailDto, LessonDto, LessonStatus};
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
-struct ListLessonsArgs {
+struct BookIdArgs {
     book_id: String,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct LessonIdArgs {
+    lesson_id: String,
+}
+
+/// Shared reactive state for the whole app, provided as a Leptos context so
+/// nested views (book list, lesson list, reader) don't need long prop lists.
+#[derive(Clone, Copy)]
+struct AppState {
+    books: RwSignal<Vec<BookDto>>,
+    selected_book: RwSignal<Option<BookDto>>,
+    lessons: RwSignal<Vec<LessonDto>>,
+    selected_lesson: RwSignal<Option<LessonDto>>,
+    statuses: RwSignal<HashMap<String, LessonStatus>>,
+    error: RwSignal<Option<String>>,
+}
+
+fn state() -> AppState {
+    use_context::<AppState>().expect("AppState provided by <App>")
 }
 
 #[component]
 pub fn App() -> impl IntoView {
-    let books = RwSignal::new(Vec::<BookDto>::new());
-    let selected = RwSignal::new(None::<BookDto>);
-    let lessons = RwSignal::new(Vec::<LessonDto>::new());
-    let statuses = RwSignal::new(HashMap::<String, LessonStatus>::new());
-    let error = RwSignal::new(None::<String>);
+    let state = AppState {
+        books: RwSignal::new(Vec::new()),
+        selected_book: RwSignal::new(None),
+        lessons: RwSignal::new(Vec::new()),
+        selected_lesson: RwSignal::new(None),
+        statuses: RwSignal::new(HashMap::new()),
+        error: RwSignal::new(None),
+    };
+    provide_context(state);
 
     spawn_local(async move {
         match invoke0::<Vec<BookDto>>("list_books").await {
-            Ok(list) => books.set(list),
-            Err(e) => error.set(Some(e)),
+            Ok(list) => state.books.set(list),
+            Err(e) => state.error.set(Some(e)),
         }
     });
 
@@ -32,32 +59,35 @@ pub fn App() -> impl IntoView {
         <div class="app">
             <h1>"Wordglow Library"</h1>
             {move || {
-                error.get().map(|message| view! { <p class="error">{message}</p> })
+                state.error.get().map(|message| view! { <p class="error">{message}</p> })
             }}
             <Show
-                when=move || selected.get().is_none()
-                fallback=move || view! { <LessonView selected=selected lessons=lessons statuses=statuses /> }
+                when=move || state.selected_lesson.get().is_none()
+                fallback=|| view! { <ReadingView /> }
             >
-                <BookList books=books selected=selected lessons=lessons error=error />
+                <Show
+                    when=move || state.selected_book.get().is_none()
+                    fallback=|| view! { <LessonList /> }
+                >
+                    <BookList />
+                </Show>
             </Show>
         </div>
     }
 }
 
 #[component]
-fn BookList(
-    books: RwSignal<Vec<BookDto>>,
-    selected: RwSignal<Option<BookDto>>,
-    lessons: RwSignal<Vec<LessonDto>>,
-    error: RwSignal<Option<String>>,
-) -> impl IntoView {
+fn BookList() -> impl IntoView {
+    let state = state();
+
     view! {
         <ul class="book-list">
             {move || {
-                books
+                state
+                    .books
                     .get()
                     .into_iter()
-                    .map(|book| view! { <BookRow book=book selected=selected lessons=lessons error=error /> })
+                    .map(|book| view! { <BookRow book=book /> })
                     .collect_view()
             }}
         </ul>
@@ -65,23 +95,19 @@ fn BookList(
 }
 
 #[component]
-fn BookRow(
-    book: BookDto,
-    selected: RwSignal<Option<BookDto>>,
-    lessons: RwSignal<Vec<LessonDto>>,
-    error: RwSignal<Option<String>>,
-) -> impl IntoView {
+fn BookRow(book: BookDto) -> impl IntoView {
+    let state = state();
     let title = book.title.clone();
     let author = book.author.clone().unwrap_or_default();
     let book_id = book.id.clone();
 
     let on_click = move |_| {
-        selected.set(Some(book.clone()));
+        state.selected_book.set(Some(book.clone()));
         let book_id = book_id.clone();
         spawn_local(async move {
-            match invoke::<Vec<LessonDto>>("list_lessons", ListLessonsArgs { book_id }).await {
-                Ok(list) => lessons.set(list),
-                Err(e) => error.set(Some(e)),
+            match invoke::<Vec<LessonDto>>("list_lessons", BookIdArgs { book_id: book_id.clone() }).await {
+                Ok(list) => state.lessons.set(list),
+                Err(e) => state.error.set(Some(e)),
             }
         });
     };
@@ -95,36 +121,218 @@ fn BookRow(
 }
 
 #[component]
-fn LessonView(
-    selected: RwSignal<Option<BookDto>>,
-    lessons: RwSignal<Vec<LessonDto>>,
-    statuses: RwSignal<HashMap<String, LessonStatus>>,
-) -> impl IntoView {
-    let title = move || selected.get().map(|b| b.title).unwrap_or_default();
+fn LessonList() -> impl IntoView {
+    let state = state();
+    let title = move || state.selected_book.get().map(|b| b.title).unwrap_or_default();
 
     view! {
         <div>
-            <button class="back-link" on:click=move |_| selected.set(None)>
+            <button class="back-link" on:click=move |_| state.selected_book.set(None)>
                 "< Back to books"
             </button>
             <h2>{title}</h2>
             <ul class="lesson-list">
                 {move || {
-                    lessons
+                    state
+                        .lessons
                         .get()
                         .into_iter()
-                        .map(|lesson| {
-                            let status = statuses.get().get(&lesson.id).copied().unwrap_or_default();
+                        .map(|lesson| view! { <LessonRow lesson=lesson /> })
+                        .collect_view()
+                }}
+            </ul>
+        </div>
+    }
+}
+
+#[component]
+fn LessonRow(lesson: LessonDto) -> impl IntoView {
+    let state = state();
+    let label = format!("{}. {}", lesson.order_index + 1, lesson.title);
+    let lesson_id = lesson.id.clone();
+    let lesson_id_for_class = lesson.id.clone();
+
+    let status = move |id: &str| state.statuses.get().get(id).copied().unwrap_or_default();
+
+    view! {
+        <li class="lesson-card" on:click=move |_| state.selected_lesson.set(Some(lesson.clone()))>
+            <span>{label}</span>
+            <span class=move || status(&lesson_id_for_class).css_class()>{move || status(&lesson_id).label()}</span>
+        </li>
+    }
+}
+
+#[component]
+fn ReadingView() -> impl IntoView {
+    let state = state();
+    let lesson_id = state.selected_lesson.get_untracked().map(|l| l.id).unwrap_or_default();
+
+    let detail = RwSignal::new(None::<LessonDetailDto>);
+    let audio_info = RwSignal::new(None::<LessonAudioDto>);
+    let current_word = RwSignal::new(None::<usize>);
+    let playback_rate = RwSignal::new(1.0_f64);
+    let audio_ref = NodeRef::<html::Audio>::new();
+
+    {
+        let lesson_id = lesson_id.clone();
+        spawn_local(async move {
+            match invoke::<LessonDetailDto>("get_lesson", LessonIdArgs { lesson_id: lesson_id.clone() }).await {
+                Ok(d) => detail.set(Some(d)),
+                Err(e) => state.error.set(Some(e)),
+            }
+        });
+    }
+    {
+        let lesson_id = lesson_id.clone();
+        spawn_local(async move {
+            match invoke::<Option<LessonAudioDto>>("get_lesson_audio", LessonIdArgs { lesson_id: lesson_id.clone() })
+                .await
+            {
+                Ok(a) => audio_info.set(a),
+                Err(e) => state.error.set(Some(e)),
+            }
+        });
+    }
+
+    // Opening a lesson counts as starting it.
+    state.statuses.update(|m| {
+        m.entry(lesson_id.clone()).or_insert(LessonStatus::InProgress);
+    });
+
+    let words = move || {
+        detail
+            .get()
+            .map(|d| d.text.split_whitespace().map(str::to_string).collect::<Vec<_>>())
+            .unwrap_or_default()
+    };
+
+    let seek_to_word = move |index: usize| {
+        if let Some(audio) = audio_info.get() {
+            if let Some(tp) = audio.word_timepoints.get(index) {
+                if let Some(el) = audio_ref.get() {
+                    el.set_current_time(tp.start_ms as f64 / 1000.0);
+                    let _ = el.play();
+                }
+            }
+        }
+    };
+
+    let on_timeupdate = move |_| {
+        let Some(el) = audio_ref.get() else { return };
+        let ms = (el.current_time() * 1000.0) as u64;
+        let Some(audio) = audio_info.get() else { return };
+        let active = audio
+            .word_timepoints
+            .iter()
+            .enumerate()
+            .rev()
+            .find(|(_, tp)| tp.start_ms <= ms)
+            .map(|(i, _)| i);
+        current_word.set(active);
+    };
+
+    let on_ended = move |_| {
+        let lesson_id = state.selected_lesson.get_untracked().map(|l| l.id).unwrap_or_default();
+        state.statuses.update(|m| {
+            m.insert(lesson_id, LessonStatus::Completed);
+        });
+    };
+
+    let on_rate_input = move |ev| {
+        let value: f64 = event_target_value(&ev).parse().unwrap_or(1.0);
+        playback_rate.set(value);
+        if let Some(el) = audio_ref.get() {
+            el.set_playback_rate(value);
+        }
+    };
+
+    view! {
+        <div class="reader">
+            <button
+                class="back-link"
+                on:click=move |_| {
+                    state.selected_lesson.set(None);
+                    current_word.set(None);
+                }
+            >
+                "< Back to lessons"
+            </button>
+            <h2>{move || detail.get().map(|d| d.title).unwrap_or_default()}</h2>
+
+            {move || {
+                audio_info
+                    .get()
+                    .filter(|a| a.stale)
+                    .map(|_| view! { <p class="error">"Audio is stale — regenerate it with teacher-cli."</p> })
+            }}
+            {move || {
+                if detail.get().is_some() && audio_info.get().is_none() {
+                    Some(view! { <p class="error">"No audio yet for this lesson — run generate-tts in teacher-cli."</p> })
+                } else {
+                    None
+                }
+            }}
+
+            {move || {
+                audio_info.get().map(|audio| {
+                    let src = format!("data:{};base64,{}", audio.mime, audio.audio_base64);
+                    view! {
+                        <div class="player">
+                            <audio node_ref=audio_ref src=src preload="auto" on:timeupdate=on_timeupdate on:ended=on_ended></audio>
+                            <div class="controls">
+                                <button on:click=move |_| { if let Some(el) = audio_ref.get() { let _ = el.play(); } }>
+                                    "Play"
+                                </button>
+                                <button on:click=move |_| { if let Some(el) = audio_ref.get() { let _ = el.pause(); } }>
+                                    "Pause"
+                                </button>
+                                <button on:click=move |_| {
+                                    if let Some(el) = audio_ref.get() {
+                                        let _ = el.pause();
+                                        el.set_current_time(0.0);
+                                    }
+                                }>
+                                    "Stop"
+                                </button>
+                                <label class="speed">
+                                    "Speed "
+                                    <input
+                                        type="range"
+                                        min="0.5"
+                                        max="2"
+                                        step="0.25"
+                                        prop:value=move || playback_rate.get().to_string()
+                                        on:input=on_rate_input
+                                    />
+                                    {move || format!("{:.2}x", playback_rate.get())}
+                                </label>
+                            </div>
+                        </div>
+                    }
+                })
+            }}
+
+            <p class="lesson-text">
+                {move || {
+                    words()
+                        .into_iter()
+                        .enumerate()
+                        .map(|(i, word)| {
+                            let active = move || current_word.get() == Some(i);
                             view! {
-                                <li class="lesson-card">
-                                    <span>{format!("{}. {}", lesson.order_index + 1, lesson.title)}</span>
-                                    <span class=status.css_class()>{status.label()}</span>
-                                </li>
+                                <span
+                                    class:word-active=active
+                                    class="word"
+                                    on:click=move |_| seek_to_word(i)
+                                >
+                                    {word}
+                                    " "
+                                </span>
                             }
                         })
                         .collect_view()
                 }}
-            </ul>
+            </p>
         </div>
     }
 }

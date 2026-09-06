@@ -115,6 +115,14 @@ enum Command {
         #[arg(long)]
         lesson_id: String,
     },
+
+    /// Count the words in a text file (whitespace-separated), e.g. to gauge
+    /// a lesson's length before running `add-lesson`.
+    CountWords {
+        /// Path to a .txt file
+        #[arg(long)]
+        text_path: PathBuf,
+    },
 }
 
 /// Ollama connection settings, loaded from the environment (or a `.env`
@@ -317,6 +325,13 @@ fn main() -> anyhow::Result<()> {
             for q in &questions {
                 println!("  {}. {}", q.order_index + 1, q.question_text);
             }
+        }
+
+        Some(Command::CountWords { text_path }) => {
+            let text = std::fs::read_to_string(&text_path)
+                .with_context(|| format!("reading text from {}", text_path.display()))?;
+            let count = text.split_whitespace().count();
+            println!("{count} word(s) in {}", text_path.display());
         }
     }
 

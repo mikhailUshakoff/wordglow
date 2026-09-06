@@ -4,6 +4,7 @@ use std::rc::Rc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
+use base64::{engine::general_purpose::STANDARD, Engine};
 use leptos::html;
 use leptos::prelude::*;
 use leptos::task::spawn_local;
@@ -12,7 +13,10 @@ use wasm_bindgen::closure::Closure;
 use wasm_bindgen::JsCast;
 
 use crate::bindings::{invoke, invoke0};
-use crate::dto::{BookDto, DictionaryEntryDto, LessonAudioDto, LessonDetailDto, LessonDto, LessonStatus, QuestionDto};
+use crate::dto::{
+    BookDto, DictionaryEntryDto, ImportSummaryDto, LessonAudioDto, LessonDetailDto, LessonDto, LessonStatus,
+    QuestionDto,
+};
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -50,6 +54,12 @@ struct RemoveWordArgs {
 struct SetLessonStatusArgs {
     lesson_id: String,
     status: LessonStatus,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ImportPackageArgs {
+    data_base64: String,
 }
 
 /// Shared reactive state for the whole app, provided as a Leptos context so
@@ -107,10 +117,79 @@ pub fn App() -> impl IntoView {
                     "Vocabulary"
                 </button>
             </Show>
+            <ImportButton />
             <Show when=move || state.showing_vocabulary.get() fallback=|| view! { <Library /> }>
                 <VocabularyView />
             </Show>
         </div>
+    }
+}
+
+/// Import a content package (a .zip produced by `teacher-cli export`).
+/// Reads the file client-side and ships it to the backend as base64, the
+/// same pattern already used to carry lesson audio the other direction.
+#[component]
+fn ImportButton() -> impl IntoView {
+    let state = state();
+    let status = RwSignal::new(None::<String>);
+    let input_ref = NodeRef::<html::Input>::new();
+
+    let on_change = move |_| {
+        let Some(input) = input_ref.get() else { return };
+        let Some(files) = input.files() else { return };
+        let Some(file) = files.get(0) else { return };
+
+        let reader = web_sys::FileReader::new().expect("FileReader::new");
+        let reader_for_load = reader.clone();
+        let onload = Closure::once(move || {
+            let Ok(result) = reader_for_load.result() else { return };
+            let Ok(array_buffer) = result.dyn_into::<js_sys::ArrayBuffer>() else { return };
+            let bytes = js_sys::Uint8Array::new(&array_buffer).to_vec();
+            let data_base64 = STANDARD.encode(bytes);
+
+            spawn_local(async move {
+                match invoke::<ImportSummaryDto>("import_package", ImportPackageArgs { data_base64 }).await {
+                    Ok(summary) => {
+                        status.set(Some(format!(
+                            "Imported {} book(s), {} lesson(s), {} audio file(s), {} question(s)",
+                            summary.books, summary.lessons, summary.audio, summary.questions
+                        )));
+                        spawn_local(async move {
+                            match invoke0::<Vec<BookDto>>("list_books").await {
+                                Ok(list) => state.books.set(list),
+                                Err(e) => state.error.set(Some(e)),
+                            }
+                        });
+                        spawn_local(async move {
+                            match invoke0::<HashMap<String, LessonStatus>>("get_lesson_statuses").await {
+                                Ok(statuses) => state.statuses.set(statuses),
+                                Err(e) => state.error.set(Some(e)),
+                            }
+                        });
+                    }
+                    Err(e) => state.error.set(Some(e)),
+                }
+            });
+        });
+        reader.set_onload(Some(onload.as_ref().unchecked_ref()));
+        onload.forget();
+        let _ = reader.read_as_array_buffer(&file);
+    };
+
+    view! {
+        <span class="import-package">
+            <label class="nav-link import-label">
+                "Import package"
+                <input
+                    node_ref=input_ref
+                    type="file"
+                    accept=".zip"
+                    style="display:none"
+                    on:change=on_change
+                />
+            </label>
+            {move || status.get().map(|s| view! { <span class="import-status">{s}</span> })}
+        </span>
     }
 }
 

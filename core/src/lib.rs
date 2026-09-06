@@ -7,6 +7,7 @@ pub mod lessons;
 pub mod migrations;
 pub mod models;
 pub mod ollama;
+pub mod package;
 pub mod paths;
 pub mod questions;
 pub mod tts;

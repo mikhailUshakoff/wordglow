@@ -101,8 +101,8 @@ enum Command {
     GenerateTtsFree {
         #[arg(long)]
         lesson_id: String,
-        /// Edge voice short name, e.g. "en-US-AriaNeural"
-        #[arg(long, default_value = "en-US-AvaNeural")]
+        /// Edge voice short name, e.g. "en-US-AriaNeural", "en-US-AvaNeural
+        #[arg(long, default_value = "en-US-SteffanNeural")]
         voice_name: String,
         /// Regenerate even if cached audio already matches the lesson's text
         #[arg(long)]
@@ -122,6 +122,23 @@ enum Command {
         /// Path to a .txt file
         #[arg(long)]
         text_path: PathBuf,
+    },
+
+    /// Package the whole library, or a filtered book/lesson, into a .zip
+    /// (content + cached audio + questions) for import into the wordglow app.
+    Export {
+        /// Book id or exact title. Omit to export the whole library.
+        #[arg(long)]
+        book: Option<String>,
+        #[arg(long)]
+        lesson_id: Option<String>,
+        #[arg(long)]
+        lesson_title: Option<String>,
+        #[arg(long)]
+        lesson_text: Option<String>,
+        /// Path to write the .zip package to
+        #[arg(long)]
+        output: PathBuf,
     },
 }
 
@@ -332,6 +349,40 @@ fn main() -> anyhow::Result<()> {
                 .with_context(|| format!("reading text from {}", text_path.display()))?;
             let count = text.split_whitespace().count();
             println!("{count} word(s) in {}", text_path.display());
+        }
+
+        Some(Command::Export {
+            book,
+            lesson_id,
+            lesson_title,
+            lesson_text,
+            output,
+        }) => {
+            let file = std::fs::File::create(&output)
+                .with_context(|| format!("creating {}", output.display()))?;
+
+            let has_lesson_criteria = lesson_id.is_some() || lesson_title.is_some() || lesson_text.is_some();
+
+            if has_lesson_criteria {
+                let book = book.ok_or_else(|| anyhow::anyhow!("--book is required with --lesson-id/--lesson-title/--lesson-text"))?;
+                let book = core::books::resolve(&conn, &book)?;
+                let lesson = resolve_lesson(
+                    &conn,
+                    &book.id,
+                    lesson_id.as_deref(),
+                    lesson_title.as_deref(),
+                    lesson_text.as_deref(),
+                )?;
+                core::package::export_lesson(&conn, &lesson.id, file)?;
+                println!("exported lesson '{}' to {}", lesson.title, output.display());
+            } else if let Some(book) = book {
+                let book = core::books::resolve(&conn, &book)?;
+                core::package::export_book(&conn, &book.id, file)?;
+                println!("exported book '{}' to {}", book.title, output.display());
+            } else {
+                core::package::export_library(&conn, file)?;
+                println!("exported whole library to {}", output.display());
+            }
         }
     }
 

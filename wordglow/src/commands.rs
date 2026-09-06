@@ -6,8 +6,8 @@ use rusqlite::Connection;
 use tauri::State;
 
 use crate::dto::{
-    BookDto, DictionaryEntryDto, LessonAudioDto, LessonDetailDto, LessonDto, LessonStatus, QuestionDto,
-    WordTimepointDto,
+    BookDto, DictionaryEntryDto, ImportSummaryDto, LessonAudioDto, LessonDetailDto, LessonDto, LessonStatus,
+    QuestionDto, WordTimepointDto,
 };
 
 pub struct DbState(pub Mutex<Connection>);
@@ -191,6 +191,22 @@ pub fn list_dictionary(state: State<DbState>) -> Result<Vec<DictionaryEntryDto>,
     wordglow_core::dictionary::list_all(&conn)
         .map(|entries| entries.into_iter().map(dictionary_entry_to_dto).collect())
         .map_err(|e| e.to_string())
+}
+
+/// Import a content package (a .zip produced by `teacher-cli export`),
+/// base64-encoded since Tauri IPC carries JSON. Upserts books/lessons by
+/// UUID and never touches a lesson's reading `status`.
+#[tauri::command]
+pub fn import_package(state: State<DbState>, data_base64: String) -> Result<ImportSummaryDto, String> {
+    let conn = state.0.lock().map_err(|e| e.to_string())?;
+    let bytes = STANDARD.decode(data_base64).map_err(|e| e.to_string())?;
+    let summary = wordglow_core::package::import_package(&conn, std::io::Cursor::new(bytes)).map_err(|e| e.to_string())?;
+    Ok(ImportSummaryDto {
+        books: summary.books,
+        lessons: summary.lessons,
+        audio: summary.audio,
+        questions: summary.questions,
+    })
 }
 
 /// Translate `word` to Russian via Ollama. Reuses a cached translation on

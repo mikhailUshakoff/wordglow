@@ -30,7 +30,8 @@ fn main() {
             commands::save_word,
             commands::remove_word,
             commands::list_dictionary,
-            commands::translate_word
+            commands::translate_word,
+            commands::import_package
         ])
         .run(tauri::generate_context!())
         .expect("error while running the Tauri application");

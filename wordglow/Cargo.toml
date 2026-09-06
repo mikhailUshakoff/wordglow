@@ -23,7 +23,9 @@ leptos = { version = "0.8.20", features = ["csr"] }
 serde-wasm-bindgen = "0.6.5"
 wasm-bindgen = "0.2.128"
 wasm-bindgen-futures = "0.4.78"
-web-sys = { version = "0.3.105", features = ["console", "HtmlAudioElement", "HtmlMediaElement", "HtmlInputElement", "Window"] }
+js-sys = "0.3.105"
+base64.workspace = true
+web-sys = { version = "0.3.105", features = ["console", "HtmlAudioElement", "HtmlMediaElement", "HtmlInputElement", "Window", "File", "FileList", "FileReader", "Event"] }
 
 [build-dependencies]
 tauri-build = "2.6.3"

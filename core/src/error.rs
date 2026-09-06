@@ -14,6 +14,9 @@ pub enum CoreError {
     #[error("json error: {0}")]
     Json(#[from] serde_json::Error),
 
+    #[error("zip error: {0}")]
+    Zip(#[from] zip::result::ZipError),
+
     #[error("tts error: {0}")]
     Tts(String),
 

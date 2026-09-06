@@ -53,6 +53,14 @@ pub struct QuestionDto {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ImportSummaryDto {
+    pub books: usize,
+    pub lessons: usize,
+    pub audio: usize,
+    pub questions: usize,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DictionaryEntryDto {
     pub id: i64,
     pub word: String,
@@ -72,6 +80,7 @@ pub enum LessonStatus {
     Completed,
 }
 
+#[allow(dead_code)]
 impl LessonStatus {
     pub fn label(self) -> &'static str {
         match self {

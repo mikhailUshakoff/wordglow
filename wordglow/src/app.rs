@@ -364,10 +364,29 @@ fn ReadingView() -> impl IntoView {
         });
     }
 
-    let words = move || {
+    // Word indices must stay in the same order `text.split_whitespace()` would
+    // produce — that's what the TTS word_timepoints are keyed to. Splitting by
+    // line first and then by whitespace within each line preserves that order
+    // while letting the UI keep the source text's paragraph breaks.
+    let paragraphs = move || {
+        let mut index = 0usize;
         detail
             .get()
-            .map(|d| d.text.split_whitespace().map(str::to_string).collect::<Vec<_>>())
+            .map(|d| {
+                d.text
+                    .lines()
+                    .filter(|line| !line.trim().is_empty())
+                    .map(|line| {
+                        line.split_whitespace()
+                            .map(|word| {
+                                let i = index;
+                                index += 1;
+                                (i, word.to_string())
+                            })
+                            .collect::<Vec<_>>()
+                    })
+                    .collect::<Vec<_>>()
+            })
             .unwrap_or_default()
     };
 
@@ -484,13 +503,17 @@ fn ReadingView() -> impl IntoView {
                 })
             }}
 
-            <p class="lesson-text">
+            <div class="lesson-text">
                 {move || {
-                    words()
+                    paragraphs()
                         .into_iter()
-                        .enumerate()
-                        .map(|(i, word)| {
-                            let active = move || current_word.get() == Some(i);
+                        .map(|paragraph| {
+                            view! {
+                                <p>
+                                    {paragraph
+                                        .into_iter()
+                                        .map(|(i, word)| {
+                                            let active = move || current_word.get() == Some(i);
                             let word_for_menu = word.clone();
                             let word_for_translate = word.clone();
                             let word_for_save = word.clone();
@@ -586,9 +609,13 @@ fn ReadingView() -> impl IntoView {
                                 </span>
                             }
                         })
+                        .collect_view()}
+                                </p>
+                            }
+                        })
                         .collect_view()
                 }}
-            </p>
+            </div>
         </div>
     }
 }

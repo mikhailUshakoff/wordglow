@@ -113,6 +113,10 @@ h1 {
   font-size: 1.1rem;
 }
 
+.lesson-text p {
+  margin: 0 0 1em 0;
+}
+
 .word {
   cursor: pointer;
   border-radius: 4px;

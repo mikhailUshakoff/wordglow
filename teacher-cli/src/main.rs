@@ -13,6 +13,9 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Command {
+    /// List every book and its id
+    ListBooks,
+
     /// Create a new book
     AddBook {
         #[arg(long)]
@@ -34,6 +37,13 @@ enum Command {
         /// Path to a .txt file containing the lesson text
         #[arg(long)]
         text_path: PathBuf,
+    },
+
+    /// Remove a book, and every lesson/audio/question belonging to it
+    RemoveBook {
+        /// Book id or exact title
+        #[arg(long)]
+        book: String,
     },
 
     /// Remove a lesson, identified by id, title, or text within a book
@@ -153,6 +163,16 @@ fn main() -> anyhow::Result<()> {
     match cli.command {
         None => println!("wordglow.db ready at {:?}", core::paths::db_path()?),
 
+        Some(Command::ListBooks) => {
+            let books = core::books::list_all(&conn)?;
+            if books.is_empty() {
+                println!("no books yet");
+            }
+            for book in books {
+                println!("{}  {}", book.id, book.title);
+            }
+        }
+
         Some(Command::AddBook {
             title,
             author,
@@ -175,6 +195,12 @@ fn main() -> anyhow::Result<()> {
                 "created lesson {} in book '{}' at position {}",
                 lesson.id, book.title, lesson.order_index
             );
+        }
+
+        Some(Command::RemoveBook { book }) => {
+            let book = core::books::resolve(&conn, &book)?;
+            core::books::delete_cascade(&conn, &book.id)?;
+            println!("removed book {} ('{}') and all its lessons/audio/questions", book.id, book.title);
         }
 
         Some(Command::DeleteLesson {

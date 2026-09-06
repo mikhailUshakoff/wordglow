@@ -47,6 +47,38 @@ pub fn list_all(conn: &Connection) -> Result<Vec<Book>> {
     Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
 }
 
+/// Delete a book along with every lesson in it, and each lesson's cached
+/// audio (file on disk + row) and generated questions.
+pub fn delete_cascade(conn: &Connection, book_id: &str) -> Result<()> {
+    let lessons = crate::lessons::list_for_book(conn, book_id)?;
+
+    let tx = conn.unchecked_transaction()?;
+    for lesson in &lessons {
+        let audio_path: Option<String> = tx
+            .query_row(
+                "SELECT audio_path FROM lesson_audio WHERE lesson_id = ?1",
+                params![lesson.id],
+                |row| row.get(0),
+            )
+            .optional()?;
+        if let Some(audio_path) = audio_path {
+            let _ = std::fs::remove_file(crate::paths::audio_dir()?.join(audio_path));
+        }
+
+        tx.execute("DELETE FROM lesson_audio WHERE lesson_id = ?1", params![lesson.id])?;
+        tx.execute("DELETE FROM questions WHERE lesson_id = ?1", params![lesson.id])?;
+        tx.execute("DELETE FROM lessons WHERE id = ?1", params![lesson.id])?;
+    }
+
+    let changed = tx.execute("DELETE FROM books WHERE id = ?1", params![book_id])?;
+    if changed == 0 {
+        return Err(CoreError::NotFound(format!("book '{book_id}'")));
+    }
+
+    tx.commit()?;
+    Ok(())
+}
+
 pub fn get(conn: &Connection, id: &str) -> Result<Option<Book>> {
     conn.query_row(
         &format!("SELECT {SELECT_COLUMNS} FROM books WHERE id = ?1"),
@@ -92,6 +124,44 @@ pub fn resolve(conn: &Connection, reference: &str) -> Result<Book> {
 mod tests {
     use super::*;
     use crate::db::test_conn;
+
+    #[test]
+    fn delete_cascade_removes_lessons_audio_and_questions() {
+        let conn = test_conn();
+        let book = create(&conn, "Dune", None, None).unwrap();
+        let lesson = crate::lessons::create(&conn, &book.id, "Ch1", "hello world", 0).unwrap();
+        conn.execute(
+            "INSERT INTO lesson_audio (lesson_id, audio_path, voice, word_timepoints, generated_at, text_hash_at_gen) \
+             VALUES (?1, ?2, 'en-US', '[]', 'now', ?3)",
+            params![lesson.id, format!("{}.mp3", lesson.id), lesson.text_hash],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO questions (id, lesson_id, order_index, question_text, created_at) \
+             VALUES ('q1', ?1, 0, 'What happened?', 'now')",
+            params![lesson.id],
+        )
+        .unwrap();
+
+        delete_cascade(&conn, &book.id).unwrap();
+
+        assert!(get(&conn, &book.id).unwrap().is_none());
+        assert!(crate::lessons::get(&conn, &lesson.id).unwrap().is_none());
+        let audio_count: i64 = conn
+            .query_row("SELECT COUNT(*) FROM lesson_audio WHERE lesson_id = ?1", params![lesson.id], |r| r.get(0))
+            .unwrap();
+        assert_eq!(audio_count, 0);
+        let question_count: i64 = conn
+            .query_row("SELECT COUNT(*) FROM questions WHERE lesson_id = ?1", params![lesson.id], |r| r.get(0))
+            .unwrap();
+        assert_eq!(question_count, 0);
+    }
+
+    #[test]
+    fn delete_cascade_errors_on_unknown_book() {
+        let conn = test_conn();
+        assert!(matches!(delete_cascade(&conn, "nope"), Err(CoreError::NotFound(_))));
+    }
 
     #[test]
     fn list_all_orders_by_title() {

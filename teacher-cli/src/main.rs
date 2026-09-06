@@ -1,3 +1,5 @@
+use std::path::PathBuf;
+
 use anyhow::Context;
 use clap::{Parser, Subcommand};
 
@@ -21,17 +23,17 @@ enum Command {
         language: Option<String>,
     },
 
-    /// Add a lesson to a book (repeatable, to build up a book over time)
+    /// Add a lesson to a book (repeatable, to build up a book over time).
+    /// Appended after the book's current last lesson.
     AddLesson {
         /// Book id or exact title
         #[arg(long)]
         book: String,
         #[arg(long)]
         title: String,
+        /// Path to a .txt file containing the lesson text
         #[arg(long)]
-        text: String,
-        #[arg(long)]
-        order: i64,
+        text_path: PathBuf,
     },
 
     /// Remove a lesson, identified by id, title, or text within a book
@@ -81,6 +83,21 @@ enum Command {
         #[arg(long)]
         force: bool,
     },
+
+    /// Synthesize lesson audio via the free, unofficial Microsoft Edge
+    /// "read aloud" TTS (no API key needed) — MVP workaround for
+    /// `generate-tts` when a Google Cloud TTS key isn't available.
+    /// Skips regeneration if cached audio already matches the lesson's text.
+    GenerateTtsFree {
+        #[arg(long)]
+        lesson_id: String,
+        /// Edge voice short name, e.g. "en-US-AriaNeural"
+        #[arg(long, default_value = "en-US-AvaNeural")]
+        voice_name: String,
+        /// Regenerate even if cached audio already matches the lesson's text
+        #[arg(long)]
+        force: bool,
+    },
 }
 
 fn resolve_lesson(
@@ -118,11 +135,12 @@ fn main() -> anyhow::Result<()> {
         Some(Command::AddLesson {
             book,
             title,
-            text,
-            order,
+            text_path,
         }) => {
+            let text = std::fs::read_to_string(&text_path)
+                .with_context(|| format!("reading lesson text from {}", text_path.display()))?;
             let book = core::books::resolve(&conn, &book)?;
-            let lesson = core::lessons::create(&conn, &book.id, &title, &text, order)?;
+            let lesson = core::lessons::create_appending(&conn, &book.id, &title, &text)?;
             println!(
                 "created lesson {} in book '{}' at position {}",
                 lesson.id, book.title, lesson.order_index
@@ -182,6 +200,29 @@ fn main() -> anyhow::Result<()> {
             };
 
             match core::tts::generate_tts(&conn, &api_key, &lesson, voice, force)? {
+                core::tts::GenerateOutcome::UpToDate(audio) => println!(
+                    "audio already up to date for lesson '{}' (generated {}); use --force to regenerate",
+                    lesson.title, audio.generated_at
+                ),
+                core::tts::GenerateOutcome::Generated(audio) => println!(
+                    "generated audio for lesson '{}' -> {} ({} words, voice '{}')",
+                    lesson.title,
+                    audio.audio_path,
+                    audio.word_timepoints.len(),
+                    audio.voice
+                ),
+            }
+        }
+
+        Some(Command::GenerateTtsFree {
+            lesson_id,
+            voice_name,
+            force,
+        }) => {
+            let lesson = core::lessons::get(&conn, &lesson_id)?
+                .ok_or_else(|| anyhow::anyhow!("no lesson with id {lesson_id}"))?;
+
+            match core::tts::generate_tts_free(&conn, &lesson, &voice_name, force)? {
                 core::tts::GenerateOutcome::UpToDate(audio) => println!(
                     "audio already up to date for lesson '{}' (generated {}); use --force to regenerate",
                     lesson.title, audio.generated_at

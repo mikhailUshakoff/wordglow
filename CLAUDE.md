@@ -107,7 +107,7 @@ CREATE TABLE questions (
 - IDs in content tables: UUID v4 as `TEXT` (not autoincrement — needed for merge-by-UUID on import). Progress tables, when they're added later, use plain autoincrement IDs.
 - `text_hash`: hash of a lesson's `text` field (e.g. blake3 or sha256, stored as a hex string), used to detect when cached audio/questions are stale
 - Errors: `thiserror` for typed errors inside `core`; `anyhow` at the CLI/Tauri-command boundary
-- Audio cache path: `<data_dir>/audio/<lesson_id>.mp3`, resolved through `core`'s path helper — never hardcode a path in either binary
+- Audio cache path: `<data_dir>/audio/<lesson_id>.*`, resolved through `core`'s path helper — never hardcode a path in either binary
 
 ## External services
 

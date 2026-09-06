@@ -28,7 +28,8 @@ pub fn audio_dir() -> Result<PathBuf> {
     Ok(dir)
 }
 
-/// Path to the cached audio file for a given lesson id.
-pub fn audio_path(lesson_id: &str) -> Result<PathBuf> {
-    Ok(audio_dir()?.join(format!("{lesson_id}.mp3")))
+/// Path to the cached audio file for a given lesson id, with the given
+/// extension (no leading dot), e.g. `"mp3"` or `"webm"`.
+pub fn audio_path(lesson_id: &str, ext: &str) -> Result<PathBuf> {
+    Ok(audio_dir()?.join(format!("{lesson_id}.{ext}")))
 }

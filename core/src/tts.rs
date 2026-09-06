@@ -228,13 +228,79 @@ pub fn generate_tts(
 
     let word_timepoints = word_timepoints_from_marks(&words, &parsed.timepoints);
 
-    let audio_path = crate::paths::audio_path(&lesson.id)?;
+    let audio_path = crate::paths::audio_path(&lesson.id, "mp3")?;
     std::fs::write(&audio_path, &audio_bytes)?;
 
     let audio = LessonAudio {
         lesson_id: lesson.id.clone(),
         audio_path: format!("{}.mp3", lesson.id),
         voice: voice.voice_name.unwrap_or(voice.language_code),
+        word_timepoints,
+        generated_at: now_iso8601(),
+        text_hash_at_gen: lesson.text_hash.clone(),
+    };
+    save_audio(conn, &audio)?;
+
+    Ok(GenerateOutcome::Generated(audio))
+}
+
+/// Synthesize (or reuse cached) audio for `lesson` via the free, unofficial
+/// Microsoft Edge "read aloud" TTS service (no API key needed) — an MVP
+/// workaround for when a Google Cloud TTS key isn't available.
+///
+/// Same caching/staleness rules as [`generate_tts`]. Word timepoints come
+/// from Edge's own `WordBoundary` events rather than SSML `<mark>`s we
+/// place ourselves, so word boundaries may not line up 1:1 with
+/// `lesson.text.split_whitespace()` the way Google's do.
+pub fn generate_tts_free(
+    conn: &Connection,
+    lesson: &Lesson,
+    voice_name: &str,
+    force: bool,
+) -> Result<GenerateOutcome> {
+    if !force {
+        if let Some(existing) = get_audio(conn, &lesson.id)? {
+            if existing.text_hash_at_gen == lesson.text_hash {
+                return Ok(GenerateOutcome::UpToDate(existing));
+            }
+        }
+    }
+
+    let config = msedge_tts::tts::SpeechConfig {
+        voice_name: voice_name.to_string(),
+        audio_format: "audio-24khz-48kbitrate-mono-mp3".to_string(),
+        pitch: 0,
+        rate: 0,
+        volume: 0,
+    };
+
+    let mut client = msedge_tts::tts::client::connect()
+        .map_err(|e| CoreError::Tts(format!("edge-tts connect failed: {e}")))?;
+
+    let synthesized = client
+        .synthesize(&xml_escape(&lesson.text), &config)
+        .map_err(|e| CoreError::Tts(format!("edge-tts synthesis failed: {e}")))?;
+
+    let word_timepoints = synthesized
+        .audio_metadata
+        .iter()
+        .filter(|m| m.metadata_type.as_deref() == Some("WordBoundary"))
+        .filter_map(|m| {
+            m.text.clone().map(|word| WordTimepoint {
+                word,
+                start_ms: m.offset / 10_000,
+                end_ms: (m.offset + m.duration) / 10_000,
+            })
+        })
+        .collect();
+
+    let audio_path = crate::paths::audio_path(&lesson.id, "mp3")?;
+    std::fs::write(&audio_path, &synthesized.audio_bytes)?;
+
+    let audio = LessonAudio {
+        lesson_id: lesson.id.clone(),
+        audio_path: format!("{}.mp3", lesson.id),
+        voice: voice_name.to_string(),
         word_timepoints,
         generated_at: now_iso8601(),
         text_hash_at_gen: lesson.text_hash.clone(),

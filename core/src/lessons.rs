@@ -49,6 +49,17 @@ pub fn create(
     })
 }
 
+/// Like [`create`], but appends after the book's current last lesson
+/// instead of taking an explicit `order_index`.
+pub fn create_appending(conn: &Connection, book_id: &str, title: &str, text: &str) -> Result<Lesson> {
+    let next_order = list_for_book(conn, book_id)?
+        .iter()
+        .map(|l| l.order_index)
+        .max()
+        .map_or(0, |max| max + 1);
+    create(conn, book_id, title, text, next_order)
+}
+
 pub fn get(conn: &Connection, id: &str) -> Result<Option<Lesson>> {
     conn.query_row(
         &format!("SELECT {SELECT_COLUMNS} FROM lessons WHERE id = ?1"),

@@ -16,6 +16,13 @@ enum Command {
     /// List every book and its id
     ListBooks,
 
+    /// List every lesson in a book, in order
+    ListLessons {
+        /// Book id or exact title
+        #[arg(long)]
+        book: String,
+    },
+
     /// Create a new book
     AddBook {
         #[arg(long)]
@@ -195,6 +202,17 @@ fn main() -> anyhow::Result<()> {
             }
             for book in books {
                 println!("{}  {}", book.id, book.title);
+            }
+        }
+
+        Some(Command::ListLessons { book }) => {
+            let book = core::books::resolve(&conn, &book)?;
+            let lessons = core::lessons::list_for_book(&conn, &book.id)?;
+            if lessons.is_empty() {
+                println!("no lessons in book '{}'", book.title);
+            }
+            for lesson in lessons {
+                println!("{}  [{}]  {}  ({})", lesson.order_index, lesson.id, lesson.title, lesson.status.as_str());
             }
         }
 

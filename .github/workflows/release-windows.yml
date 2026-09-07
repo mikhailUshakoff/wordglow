@@ -1,0 +1,41 @@
+name: release-windows
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: install trunk
+        uses: taiki-e/install-action@v2
+        with:
+          tool: trunk
+
+      - name: install tauri-cli
+        uses: taiki-e/install-action@v2
+        with:
+          tool: tauri-cli
+
+      - uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          projectPath: wordglow
+          tagName: ${{ github.ref_name }}
+          releaseName: "Wordglow ${{ github.ref_name }}"
+          releaseDraft: true
+          prerelease: false

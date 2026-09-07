@@ -59,7 +59,7 @@ struct QuestionsPayload {
 fn build_prompt(lesson_text: &str) -> String {
     format!(
         "You are writing reading comprehension questions for a language-learning student.\n\
-         Read the lesson text below and write 3 to 5 open, free-response comprehension questions \
+         Read the lesson text below and write 5 open, free-response comprehension questions \
          about it. Do not include multiple-choice options or answers.\n\
          Respond with JSON only, in the exact form {{\"questions\": [\"question one\", \"question two\"]}}.\n\n\
          Lesson text:\n{lesson_text}"

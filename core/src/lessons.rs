@@ -181,6 +181,43 @@ pub fn resolve_one(
     }
 }
 
+/// Replaces a lesson's text, recomputing `text_hash`, resetting `status` back
+/// to `not_started`, and clearing anything now stale against the new text —
+/// deleting the `lesson_audio` row (and its audio file on disk) and every
+/// `questions` row for the lesson.
+pub fn change_text(conn: &Connection, lesson_id: &str, text: &str) -> Result<Lesson> {
+    let text = &normalize_dashes(text);
+    let now = now_iso8601();
+    let text_hash = hash_text(text);
+
+    let tx = conn.unchecked_transaction()?;
+
+    let changed = tx.execute(
+        "UPDATE lessons SET text = ?1, text_hash = ?2, status = ?3, updated_at = ?4 WHERE id = ?5",
+        params![text, text_hash, LessonStatus::NotStarted.as_str(), now, lesson_id],
+    )?;
+    if changed == 0 {
+        return Err(CoreError::NotFound(format!("lesson '{lesson_id}'")));
+    }
+
+    let audio_path: Option<String> = tx
+        .query_row(
+            "SELECT audio_path FROM lesson_audio WHERE lesson_id = ?1",
+            params![lesson_id],
+            |row| row.get(0),
+        )
+        .optional()?;
+    if let Some(audio_path) = audio_path {
+        let _ = std::fs::remove_file(crate::paths::audio_dir()?.join(audio_path));
+    }
+    tx.execute("DELETE FROM lesson_audio WHERE lesson_id = ?1", params![lesson_id])?;
+    tx.execute("DELETE FROM questions WHERE lesson_id = ?1", params![lesson_id])?;
+
+    tx.commit()?;
+
+    get(conn, lesson_id)?.ok_or_else(|| CoreError::NotFound(format!("lesson '{lesson_id}'")))
+}
+
 pub fn delete(conn: &Connection, lesson_id: &str) -> Result<()> {
     let changed = conn.execute("DELETE FROM lessons WHERE id = ?1", params![lesson_id])?;
     if changed == 0 {
@@ -290,6 +327,47 @@ mod tests {
 
         assert!(get(&conn, &lesson.id).unwrap().is_none());
         assert!(matches!(delete(&conn, &lesson.id), Err(CoreError::NotFound(_))));
+    }
+
+    #[test]
+    fn change_text_updates_hash_and_resets_audio_and_questions() {
+        let conn = test_conn();
+        let book_id = setup_book(&conn);
+        let lesson = create(&conn, &book_id, "Ch1", "hello world", 0).unwrap();
+        set_status(&conn, &lesson.id, LessonStatus::Completed).unwrap();
+
+        conn.execute(
+            "INSERT INTO lesson_audio (lesson_id, audio_path, voice, word_timepoints, generated_at, text_hash_at_gen) \
+             VALUES (?1, ?2, 'en-US', '[]', 'now', ?3)",
+            params![lesson.id, format!("{}.mp3", lesson.id), lesson.text_hash],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO questions (id, lesson_id, order_index, question_text, created_at) \
+             VALUES ('q1', ?1, 0, 'What happened?', 'now')",
+            params![lesson.id],
+        )
+        .unwrap();
+
+        let updated = change_text(&conn, &lesson.id, "brand new text").unwrap();
+
+        assert_eq!(updated.text, "brand new text");
+        assert_eq!(updated.text_hash, crate::hash::hash_text("brand new text"));
+        assert_eq!(updated.status, LessonStatus::NotStarted);
+
+        let audio_count: i64 = conn
+            .query_row("SELECT COUNT(*) FROM lesson_audio WHERE lesson_id = ?1", params![lesson.id], |r| r.get(0))
+            .unwrap();
+        assert_eq!(audio_count, 0);
+        let question_count: i64 = conn
+            .query_row("SELECT COUNT(*) FROM questions WHERE lesson_id = ?1", params![lesson.id], |r| r.get(0))
+            .unwrap();
+        assert_eq!(question_count, 0);
+
+        assert!(matches!(
+            change_text(&conn, "missing-id", "x"),
+            Err(CoreError::NotFound(_))
+        ));
     }
 
     #[test]

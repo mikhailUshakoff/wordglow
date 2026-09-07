@@ -66,6 +66,16 @@ enum Command {
         text: Option<String>,
     },
 
+    /// Replace a lesson's text; resets its cached audio and questions since
+    /// they'd otherwise go stale against the new text.
+    ChangeLessonText {
+        #[arg(long)]
+        lesson_id: String,
+        /// Path to a .txt file containing the new lesson text
+        #[arg(long)]
+        text_path: PathBuf,
+    },
+
     /// Change a book's lesson order
     ReorderLessons {
         /// Book id or exact title
@@ -256,6 +266,16 @@ fn main() -> anyhow::Result<()> {
             let lesson = resolve_lesson(&conn, &book.id, id.as_deref(), title.as_deref(), text.as_deref())?;
             core::lessons::delete(&conn, &lesson.id)?;
             println!("deleted lesson {} ('{}')", lesson.id, lesson.title);
+        }
+
+        Some(Command::ChangeLessonText { lesson_id, text_path }) => {
+            let text = std::fs::read_to_string(&text_path)
+                .with_context(|| format!("reading lesson text from {}", text_path.display()))?;
+            let lesson = core::lessons::change_text(&conn, &lesson_id, &text)?;
+            println!(
+                "updated text for lesson {} ('{}'); cached audio and questions reset",
+                lesson.id, lesson.title
+            );
         }
 
         Some(Command::ReorderLessons { book, order }) => {

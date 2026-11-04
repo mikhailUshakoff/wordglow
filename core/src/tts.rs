@@ -70,17 +70,32 @@ struct Timepoint {
     time_seconds: f64,
 }
 
-/// Wraps each word in `text` with a named SSML `<mark>` so the TTS
-/// response can report a timepoint per word. Returns the SSML plus the
-/// words in the same order as the marks (`w0`, `w1`, ...).
+/// Whether a whitespace-separated token is actually spoken. Tokens with no
+/// letter or digit (dashes like `–`/`—`, lone punctuation) are silent: they
+/// get no `<mark>` / timepoint, so word indices only count spoken tokens.
+/// The reader UI (`wordglow/src/app.rs`) applies the same rule — keep them in sync.
+pub fn is_spoken_token(token: &str) -> bool {
+    token.chars().any(char::is_alphanumeric)
+}
+
+/// Wraps each spoken word in `text` with a named SSML `<mark>` so the TTS
+/// response can report a timepoint per word. Silent tokens (see
+/// [`is_spoken_token`]) are kept in the SSML but get no mark. Returns the
+/// SSML plus the spoken words in the same order as the marks (`w0`, `w1`, ...).
 fn build_ssml(text: &str) -> (String, Vec<String>) {
-    let words: Vec<&str> = text.split_whitespace().collect();
     let mut ssml = String::from("<speak>");
-    for (i, word) in words.iter().enumerate() {
-        ssml.push_str(&format!("<mark name=\"w{i}\"/>{} ", xml_escape(word)));
+    let mut words = Vec::new();
+    for token in text.split_whitespace() {
+        if is_spoken_token(token) {
+            let i = words.len();
+            ssml.push_str(&format!("<mark name=\"w{i}\"/>"));
+            words.push(token.to_string());
+        }
+        ssml.push_str(&xml_escape(token));
+        ssml.push(' ');
     }
     ssml.push_str("</speak>");
-    (ssml, words.into_iter().map(String::from).collect())
+    (ssml, words)
 }
 
 fn xml_escape(s: &str) -> String {
@@ -114,6 +129,119 @@ fn word_timepoints_from_marks(words: &[String], timepoints: &[Timepoint]) -> Vec
                 start_ms: (start * 1000.0).round() as u64,
                 end_ms: (end * 1000.0).round() as u64,
             }
+        })
+        .collect()
+}
+
+/// A word boundary as reported by a TTS engine: the source-text fragment it
+/// covers plus its audio span.
+struct Boundary {
+    text: String,
+    start_ms: u64,
+    end_ms: u64,
+}
+
+/// Rough letters spoken per written digit ("221" → "two twenty-one",
+/// "1889" → "eighteen eighty-nine").
+const LETTERS_PER_DIGIT: usize = 5;
+
+/// Estimated spoken length of a token, in letters, used to split one
+/// boundary's audio span across the tokens it covers. Digits expand when
+/// read aloud, so a plain character count would hand `221B` far too little
+/// of `"221B Baker Street"` and move the highlight on too early.
+fn spoken_weight(token: &str) -> usize {
+    token
+        .chars()
+        .map(|c| match c {
+            c if c.is_ascii_digit() => LETTERS_PER_DIGIT,
+            c if c.is_alphanumeric() => 1,
+            _ => 0,
+        })
+        .sum()
+}
+
+/// How far ahead (in bytes) of the current position a boundary's text may
+/// be found before we treat it as unmatched — keeps one odd boundary from
+/// jumping to a far-later occurrence of the same word.
+const ALIGN_SLACK_BYTES: usize = 64;
+
+/// Maps engine word boundaries onto `text`'s spoken tokens (see
+/// [`is_spoken_token`]), returning exactly one timepoint per spoken token in
+/// order — the indexing the reader UI relies on.
+///
+/// Engines don't segment 1:1 with whitespace: Edge reports `"in 1889"` or
+/// `"221B Baker Street"` as a single boundary, and may skip or split
+/// others. Each boundary is located in the source text; if it covers
+/// several tokens its span is split between them by [`spoken_weight`], if
+/// it covers part of an already-timed token that token's end is extended.
+/// Tokens no boundary covered get a zero-length span at the previous
+/// token's end.
+fn align_boundaries(text: &str, boundaries: &[Boundary]) -> Vec<WordTimepoint> {
+    let base = text.as_ptr() as usize;
+    let tokens: Vec<(usize, usize, &str)> = text
+        .split_whitespace()
+        .filter(|t| is_spoken_token(t))
+        .map(|t| {
+            let start = t.as_ptr() as usize - base;
+            (start, start + t.len(), t)
+        })
+        .collect();
+
+    let mut spans: Vec<Option<(u64, u64)>> = vec![None; tokens.len()];
+    let mut cursor = 0usize;
+
+    for b in boundaries {
+        if b.text.trim().is_empty() {
+            continue;
+        }
+        let Some(rel) = text[cursor..].find(b.text.as_str()) else { continue };
+        if rel > ALIGN_SLACK_BYTES {
+            continue;
+        }
+        let (m_start, m_end) = (cursor + rel, cursor + rel + b.text.len());
+        cursor = m_end;
+
+        let covered: Vec<usize> = tokens
+            .iter()
+            .enumerate()
+            .filter(|(_, (s, e, _))| *s < m_end && *e > m_start)
+            .map(|(i, _)| i)
+            .collect();
+        let fresh: Vec<usize> = covered.iter().copied().filter(|&i| spans[i].is_none()).collect();
+
+        if fresh.is_empty() {
+            // Boundary is a fragment of a token already timed — extend it.
+            if let Some(&last) = covered.last() {
+                if let Some((_, end)) = spans[last].as_mut() {
+                    *end = (*end).max(b.end_ms);
+                }
+            }
+            continue;
+        }
+
+        let weight = |i: usize| spoken_weight(tokens[i].2);
+        let total_chars: usize = fresh.iter().map(|&i| weight(i)).sum();
+        let duration = b.end_ms.saturating_sub(b.start_ms);
+        let mut t = b.start_ms;
+        for (n, &i) in fresh.iter().enumerate() {
+            let end = if n + 1 == fresh.len() {
+                b.end_ms
+            } else {
+                t + duration * weight(i) as u64 / total_chars.max(1) as u64
+            };
+            spans[i] = Some((t, end));
+            t = end;
+        }
+    }
+
+    let mut prev_end = 0u64;
+    tokens
+        .iter()
+        .zip(spans)
+        .map(|((_, _, word), span)| {
+            let (start_ms, end_ms) = span.unwrap_or((prev_end, prev_end));
+            prev_end = end_ms;
+            WordTimepoint { word: word.to_string(), start_ms, end_ms }
         })
         .collect()
 }
@@ -250,8 +378,8 @@ pub fn generate_tts(
 ///
 /// Same caching/staleness rules as [`generate_tts`]. Word timepoints come
 /// from Edge's own `WordBoundary` events rather than SSML `<mark>`s we
-/// place ourselves, so word boundaries may not line up 1:1 with
-/// `lesson.text.split_whitespace()` the way Google's do.
+/// place ourselves; those don't line up 1:1 with the text's tokens, so
+/// [`align_boundaries`] maps them back to one timepoint per spoken token.
 pub fn generate_tts_free(
     conn: &Connection,
     lesson: &Lesson,
@@ -281,18 +409,19 @@ pub fn generate_tts_free(
         .synthesize(&xml_escape(&lesson.text), &config)
         .map_err(|e| CoreError::Tts(format!("edge-tts synthesis failed: {e}")))?;
 
-    let word_timepoints = synthesized
+    let boundaries: Vec<Boundary> = synthesized
         .audio_metadata
         .iter()
         .filter(|m| m.metadata_type.as_deref() == Some("WordBoundary"))
         .filter_map(|m| {
-            m.text.clone().map(|word| WordTimepoint {
-                word,
+            m.text.clone().map(|text| Boundary {
+                text,
                 start_ms: m.offset / 10_000,
                 end_ms: (m.offset + m.duration) / 10_000,
             })
         })
         .collect();
+    let word_timepoints = align_boundaries(&lesson.text, &boundaries);
 
     let audio_path = crate::paths::audio_path(&lesson.id, "mp3")?;
     std::fs::write(&audio_path, &synthesized.audio_bytes)?;
@@ -325,6 +454,67 @@ mod tests {
             ssml,
             "<speak><mark name=\"w0\"/>hello <mark name=\"w1\"/>brave <mark name=\"w2\"/>new <mark name=\"w3\"/>world </speak>"
         );
+    }
+
+    #[test]
+    fn build_ssml_skips_marks_for_silent_tokens() {
+        let (ssml, words) = build_ssml("well – maybe — 42 ...");
+        assert_eq!(words, vec!["well", "maybe", "42"]);
+        assert_eq!(
+            ssml,
+            "<speak><mark name=\"w0\"/>well – <mark name=\"w1\"/>maybe — <mark name=\"w2\"/>42 ... </speak>"
+        );
+    }
+
+    fn b(text: &str, start_ms: u64, end_ms: u64) -> Boundary {
+        Boundary { text: text.into(), start_ms, end_ms }
+    }
+
+    fn words_and_starts(tps: &[WordTimepoint]) -> Vec<(&str, u64)> {
+        tps.iter().map(|tp| (tp.word.as_str(), tp.start_ms)).collect()
+    }
+
+    #[test]
+    fn align_splits_merged_boundary_across_tokens() {
+        let text = "takes place in 1889. There were";
+        let tps = align_boundaries(
+            text,
+            &[b("takes", 0, 100), b("place", 100, 200), b("in 1889", 200, 800), b("There", 900, 1000), b("were", 1000, 1100)],
+        );
+        assert_eq!(
+            words_and_starts(&tps),
+            vec![("takes", 0), ("place", 100), ("in", 200), ("1889.", 254), ("There", 900), ("were", 1000)]
+        );
+        assert_eq!(tps[3].end_ms, 800);
+    }
+
+    #[test]
+    fn align_gives_numbers_their_spoken_share() {
+        // Edge reports the whole address as one boundary.
+        let tps = align_boundaries("at 221B Baker Street, in", &[b("at", 0, 100), b("221B Baker Street", 100, 2800), b("in", 3000, 3100)]);
+        // 221B = 3*5+1 = 16, Baker = 5, Street = 6 → 16/27 of 2700 ms.
+        assert_eq!(
+            words_and_starts(&tps),
+            vec![("at", 0), ("221B", 100), ("Baker", 1700), ("Street,", 2200), ("in", 3000)]
+        );
+    }
+
+    #[test]
+    fn align_skips_silent_tokens_and_fills_missing_words() {
+        let text = "well – maybe Mr. Holmes";
+        // Engine reports no boundary for "maybe" and splits nothing else.
+        let tps = align_boundaries(text, &[b("well", 0, 100), b("Mr", 300, 400), b("Holmes", 400, 600)]);
+        assert_eq!(
+            words_and_starts(&tps),
+            vec![("well", 0), ("maybe", 100), ("Mr.", 300), ("Holmes", 400)]
+        );
+    }
+
+    #[test]
+    fn align_extends_token_split_into_several_boundaries() {
+        let tps = align_boundaries("1889 ok", &[b("18", 0, 200), b("89", 200, 500), b("ok", 500, 600)]);
+        assert_eq!(words_and_starts(&tps), vec![("1889", 0), ("ok", 500)]);
+        assert_eq!(tps[0].end_ms, 500);
     }
 
     #[test]

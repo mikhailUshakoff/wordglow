@@ -121,6 +121,7 @@ pub fn App() -> impl IntoView {
             <Show when=move || state.showing_vocabulary.get() fallback=|| view! { <Library /> }>
                 <VocabularyView />
             </Show>
+            <span class="app-version">{concat!("v", env!("CARGO_PKG_VERSION"))}</span>
         </div>
     }
 }
@@ -465,6 +466,10 @@ fn ReadingView() -> impl IntoView {
     // produce — that's what the TTS word_timepoints are keyed to. Splitting by
     // line first and then by whitespace within each line preserves that order
     // while letting the UI keep the source text's paragraph breaks.
+    //
+    // Silent tokens (no letter/digit, e.g. `–`) have no timepoint, so they get
+    // no index (`None`) and don't advance it — same rule as
+    // `wordglow_core::tts::is_spoken_token` (frontend can't depend on core).
     let paragraphs = move || {
         let mut index = 0usize;
         detail
@@ -476,9 +481,12 @@ fn ReadingView() -> impl IntoView {
                     .map(|line| {
                         line.split_whitespace()
                             .map(|word| {
+                                if !word.chars().any(char::is_alphanumeric) {
+                                    return (None, word.to_string());
+                                }
                                 let i = index;
                                 index += 1;
-                                (i, word.to_string())
+                                (Some(i), word.to_string())
                             })
                             .collect::<Vec<_>>()
                     })
@@ -635,6 +643,10 @@ fn ReadingView() -> impl IntoView {
                                     {paragraph
                                         .into_iter()
                                         .map(|(i, word)| {
+                                            let Some(i) = i else {
+                                                return view! { <span class="word-silent">{word}" "</span> }
+                                                    .into_any();
+                                            };
                                             let active = move || current_word.get() == Some(i);
                             let word_for_menu = word.clone();
                             let word_for_translate = word.clone();
@@ -730,6 +742,7 @@ fn ReadingView() -> impl IntoView {
                                     }}
                                 </span>
                             }
+                            .into_any()
                         })
                         .collect_view()}
                                 </p>

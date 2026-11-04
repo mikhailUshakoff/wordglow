@@ -241,3 +241,13 @@ h1 {
 .word-menu-saved {
   color: #1e6b23;
 }
+
+.app-version {
+  position: fixed;
+  right: 8px;
+  bottom: 6px;
+  font-size: 0.75rem;
+  opacity: 0.5;
+  pointer-events: none;
+  user-select: none;
+}

@@ -18,6 +18,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `TRANSLATE_SOURCE_LANG` environment variable for the Wordglow app: fallback source language (default `en`), used when the word's book has no language set, or the saved word isn't linked to a lesson.
 - Optional `MYMEMORY_EMAIL` environment variable: raises MyMemory's free quota from about 5k to about 50k characters per day.
 - Translation errors from MyMemory, such as an exhausted daily quota, are shown as errors instead of being saved as the translation.
+- The GitHub release description is taken from this changelog.
+
+### Fixed
+
+- The Windows installer was always named version 0.1.0 (e.g. `Wordglow_0.1.0_x64-setup.exe`). It now uses the workspace version from `Cargo.toml`, and the release workflow fails if the tag doesn't match that version.
 
 ## [0.0.2] - 2026-11-04
 

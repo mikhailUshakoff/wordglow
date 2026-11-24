@@ -14,6 +14,19 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # The app/installer version comes from [workspace.package] version in
+      # Cargo.toml (tauri.conf.json has no "version", so Tauri falls back to
+      # it). Fail fast if the tag disagrees, e.g. tag v0.0.4 on a 0.0.3 tree.
+      - name: check tag matches Cargo.toml version
+        if: github.ref_type == 'tag'
+        shell: bash
+        run: |
+          cargo_version="$(awk '/^\[workspace.package\]/{f=1;next} /^\[/{f=0} f && /^version *=/{gsub(/.*= *"|".*/,""); print; exit}' Cargo.toml)"
+          if [[ "v$cargo_version" != "$GITHUB_REF_NAME" ]]; then
+            echo "::error file=Cargo.toml::tag $GITHUB_REF_NAME does not match workspace version $cargo_version"
+            exit 1
+          fi
+
       # Release description = this tag's section of CHANGELOG.md (tag v0.0.3
       # -> "## [0.0.3]"). A tag push with no matching section fails here,
       # before any toolchain install or build; a manual run without a tag uses a placeholder.

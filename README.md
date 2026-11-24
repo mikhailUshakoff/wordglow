@@ -64,7 +64,7 @@ Environment variables (or a `.env` file):
 
 ## Release builds
 
-Pushing a `v*` tag triggers [`.github/workflows/release-windows.yml`](.github/workflows/release-windows.yml), which builds the Wordglow app and publishes a draft GitHub release for Windows.
+Pushing a `v*` tag triggers [`.github/workflows/release-windows.yml`](.github/workflows/release-windows.yml), which builds the Wordglow app and publishes a draft GitHub release for Windows. The release description is the tag's section of [`CHANGELOG.md`](CHANGELOG.md) (tag `v0.0.3` → `## [0.0.3]`), extracted by `scripts/changelog-section.sh`. Add that section before tagging, or the workflow fails.
 
 ## License
 

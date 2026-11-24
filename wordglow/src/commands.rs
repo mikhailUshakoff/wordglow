@@ -12,27 +12,22 @@ use crate::dto::{
 
 pub struct DbState(pub Mutex<Connection>);
 
-/// Ollama connection settings, loaded once at startup from the environment
-/// (or a `.env` file) via `envy`. Both fields have defaults, so no env vars
-/// are required for a local Ollama server.
+/// MyMemory translation settings, loaded once at startup from the
+/// environment (or a `.env` file) via `envy`. No env vars are required.
 #[derive(serde::Deserialize)]
-pub struct OllamaConfig {
-    #[serde(default = "OllamaConfig::default_url")]
-    pub ollama_url: String,
-    #[serde(default = "OllamaConfig::default_model")]
-    pub ollama_model: String,
-    /// Bearer token for Ollama's hosted cloud API. Not needed for a local
-    /// Ollama server.
-    pub ollama_api_key: Option<String>,
+pub struct TranslateConfig {
+    /// Fallback ISO 639-1 source language (`TRANSLATE_SOURCE_LANG`), used
+    /// only when the word's lesson/book has no language set.
+    #[serde(default = "TranslateConfig::default_source_lang")]
+    pub translate_source_lang: String,
+    /// Optional email sent to MyMemory (`MYMEMORY_EMAIL`); raises the free
+    /// daily quota from ~5k to ~50k chars.
+    pub mymemory_email: Option<String>,
 }
 
-impl OllamaConfig {
-    fn default_url() -> String {
-        "https://ollama.com".to_string()
-    }
-
-    fn default_model() -> String {
-        "gpt-oss:120b".to_string()
+impl TranslateConfig {
+    fn default_source_lang() -> String {
+        "en".to_string()
     }
 }
 
@@ -209,11 +204,19 @@ pub fn import_package(state: State<DbState>, data_base64: String) -> Result<Impo
     })
 }
 
-/// Translate `word` to Russian via Ollama. Reuses a cached translation on
-/// the word's dictionary entry if it has one; otherwise calls Ollama and,
+/// Translate `word` to Russian via MyMemory. Reuses a cached translation on
+/// the word's dictionary entry if it has one; otherwise calls MyMemory and,
 /// if the word is on the list, caches the result for next time.
+///
+/// The source language is the language of `lesson_id`'s book, falling back
+/// to `TRANSLATE_SOURCE_LANG` when there's no lesson or the book has none.
 #[tauri::command]
-pub fn translate_word(state: State<DbState>, ollama: State<OllamaConfig>, word: String) -> Result<String, String> {
+pub fn translate_word(
+    state: State<DbState>,
+    config: State<TranslateConfig>,
+    word: String,
+    lesson_id: Option<String>,
+) -> Result<String, String> {
     let conn = state.0.lock().map_err(|e| e.to_string())?;
 
     if let Some(cached) = wordglow_core::dictionary::get_by_word(&conn, &word)
@@ -223,13 +226,15 @@ pub fn translate_word(state: State<DbState>, ollama: State<OllamaConfig>, word: 
         return Ok(cached);
     }
 
-    let translation = wordglow_core::ollama::translate_word(
-        &ollama.ollama_url,
-        ollama.ollama_api_key.as_deref(),
-        &ollama.ollama_model,
-        &word,
-    )
-    .map_err(|e| e.to_string())?;
+    let source_lang = match lesson_id.as_deref() {
+        Some(id) => wordglow_core::translate::source_lang_for_lesson(&conn, id).map_err(|e| e.to_string())?,
+        None => None,
+    }
+    .unwrap_or_else(|| config.translate_source_lang.clone());
+
+    let translation =
+        wordglow_core::translate::translate_word(&source_lang, config.mymemory_email.as_deref(), &word)
+            .map_err(|e| e.to_string())?;
 
     wordglow_core::dictionary::set_translation(&conn, &word, &translation).map_err(|e| e.to_string())?;
 

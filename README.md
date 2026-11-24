@@ -13,7 +13,7 @@ Local-first reading & language-learning tutor. One person plays both **Teacher**
 
 ```
 wordglow/
-  core/          # shared lib: db schema/migrations, TTS + Ollama calls, package export/import
+  core/          # shared lib: db schema/migrations, TTS, Ollama + MyMemory calls, package export/import
   teacher-cli/   # CLI for authoring content
   wordglow/      # Tauri + Leptos student-facing app
 ```
@@ -24,7 +24,7 @@ wordglow/
 
 - Rust (stable), with the `wasm32-unknown-unknown` target for the app: `rustup target add wasm32-unknown-unknown`
 - [`trunk`](https://trunkrs.dev/) and [`tauri-cli`](https://tauri.app/) for building the Wordglow app
-- Optional: a Google Cloud TTS API key (for `generate-tts`) and a running Ollama instance (for `generate-questions` and in-app translation)
+- Optional: a Google Cloud TTS API key (for `generate-tts`) and a running Ollama instance (for `generate-questions`). In-app translation uses the free [MyMemory](https://mymemory.translated.net/doc/spec.php) API — no key needed
 
 ## Building
 
@@ -51,7 +51,7 @@ Run `cargo run -p teacher-cli -- --help` for the full command list.
 
 ## Configuration
 
-Environment variables (or a `.env` file), used by `teacher-cli`:
+Environment variables (or a `.env` file):
 
 | Variable | Used by | Default |
 |---|---|---|
@@ -59,6 +59,8 @@ Environment variables (or a `.env` file), used by `teacher-cli`:
 | `OLLAMA_URL` | `generate-questions` | `https://ollama.com` |
 | `OLLAMA_MODEL` | `generate-questions` | `gpt-oss:120b` |
 | `OLLAMA_API_KEY` | `generate-questions` (Ollama's hosted cloud API only) | none — unneeded for a local Ollama server |
+| `TRANSLATE_SOURCE_LANG` | Wordglow app (word translation) | `en` — fallback only; the source language normally comes from the word's book (`add-book --language`). Target is always Russian |
+| `MYMEMORY_EMAIL` | Wordglow app (word translation) | none — optional; raises MyMemory's free quota from ~5k to ~50k chars/day |
 
 ## Release builds
 

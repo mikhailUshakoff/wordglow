@@ -23,6 +23,9 @@ pub enum CoreError {
     #[error("ollama error: {0}")]
     Ollama(String),
 
+    #[error("translation error: {0}")]
+    Translate(String),
+
     #[error("could not determine data directory")]
     NoDataDir,
 

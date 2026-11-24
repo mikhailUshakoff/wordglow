@@ -6,9 +6,9 @@ Local-first reading & language-learning tutor. One person plays both **Teacher**
 
 - **`wordglow`** (student-facing app): Tauri + Leptos, CSR mode (built via Trunk), running in the Tauri webview
 - **`teacher-cli`**: plain Rust CLI using `clap`
-- **`core`**: shared lib — schema/migrations, models, Google TTS + Ollama calls, package export/import, merge logic, data-directory path resolution
+- **`core`**: shared lib — schema/migrations, models, Google TTS + Edge TTS + Ollama + MyMemory calls, package export/import, merge logic, data-directory path resolution
 - SQLite via `rusqlite` (feature `bundled` — no system dependency)
-- Other crates: `uuid` (v4, serde feature), `serde` / `serde_json`, `zip` (package export/import), `reqwest` (Google TTS + Ollama HTTP calls), `directories` (`ProjectDirs` for the data directory — used by *both* binaries so they agree on the same path)
+- Other crates: `uuid` (v4, serde feature), `serde` / `serde_json`, `zip` (package export/import), `reqwest` (Google TTS, Ollama, MyMemory HTTP calls), `directories` (`ProjectDirs` for the data directory — used by *both* binaries so they agree on the same path), `msedge-tts` (free Edge TTS fallback)
 
 ## Workspace layout
 
@@ -42,9 +42,11 @@ Build only what's listed below. Don't implement quiz-taking/scoring, streaks, XP
 |---|---|
 | `add-book` | Create a book: title, author, language |
 | `add-lesson` | Add a lesson to a book: title, text, order — repeatable to build up a book over time |
+| `change-lesson-text` | Replace a lesson's text from a `.txt` file; resets `status` to `not_started` and deletes now-stale `lesson_audio` (row + file) and `questions` for that lesson |
 | `delete-lesson` | Remove a lesson (text/title) |
 | `reorder-lessons` | Change a book's lesson order |
 | `generate-tts` | Synthesize audio for a lesson via Google Cloud TTS with SSML `<mark>` tags; cache the audio file + word timepoints, keyed to the lesson's `text_hash` so stale edits are detectable |
+| `generate-tts-free` | Same caching/staleness rules as `generate-tts`, but via the free, unofficial Microsoft Edge "read aloud" TTS (`msedge-tts`, no API key) — fallback when no Google key is available. Timepoints come from Edge's `WordBoundary` events, aligned back to one timepoint per spoken token |
 | `generate-questions` | Call Ollama to produce 3–5 open (free-response) comprehension questions for a lesson |
 | `export` | Package the whole library, or a filtered book/lesson, into a `.zip` for bundling into a build or sending directly |
 
@@ -58,7 +60,7 @@ Build only what's listed below. Don't implement quiz-taking/scoring, streaks, XP
 - Select a lesson to read
 - Play / pause / stop, seek, adjustable playback speed
 - Highlight the currently-spoken word, synced to the cached word timepoints
-- Click a word anywhere in the text pauses playback and opens a per-word action menu: continue playing from that word, translate it to Russian (via Ollama), or save it to the vocabulary list
+- Click a word anywhere in the text pauses playback and opens a per-word action menu: continue playing from that word, translate it to Russian (via MyMemory), or save it to the vocabulary list
 
 Per-lesson status (not started / in progress / completed) is persisted in `lessons.status` and survives app restarts. Resume-from-cursor position is still in-memory/session-only for now — persisting "last position" across restarts is a later-phase feature.
 
@@ -130,14 +132,16 @@ CREATE TABLE dictionary (
 ## External services
 
 - **Google Cloud TTS**: real API (not the free `gTTS` wrapper). Send SSML with a `<mark>` per word; the response includes audio plus timepoints for each mark — store both.
-- **Ollama**: remote HTTP API (default `http://localhost:11434`). Used by `generate-questions`, and by the wordglow app's word-translation feature (translate to Russian).
+- **Microsoft Edge TTS** (via `msedge-tts`): free, unofficial, no key. Used by `generate-tts-free` as a fallback to Google Cloud TTS.
+- **Ollama**: remote HTTP API (default `http://localhost:11434`). Used by `generate-questions` only.
+- **MyMemory** (`api.mymemory.translated.net/get`): free, no API key. Used by the wordglow app's word-translation feature (translate to Russian) — Ollama's hosted API no longer allows free requests. Source language = primary subtag of the word's book `language` (`en-US` → `en`), passed via the lesson id; `TRANSLATE_SOURCE_LANG` (default `en`) is the fallback when there's no lesson/book language, optional `MYMEMORY_EMAIL` (raises daily quota ~5k → ~50k chars). Returns HTTP 200 even on API errors — check `responseStatus`.
 
 ## Out of scope for now
 
 - Quiz-taking / scoring (questions are generated and stored, but not yet surfaced as a gradable quiz)
 - Streak calendar, XP, levels, badges
 - Spaced repetition / review scheduling for the vocabulary list
-- `edit-lesson` (only `delete-lesson` exists right now)
+- A general `edit-lesson` (e.g. renaming a lesson's title) — text changes go through `change-lesson-text`, order through `reorder-lessons`
 - The remaining progress tables (`activity_log`, `quiz_attempts`, `badges_earned`, `user_stats`) — not created yet, not part of this phase
 - Persisting resume-from-cursor position across restarts (lesson status is persisted; last-read position is not)
 
@@ -149,4 +153,4 @@ CREATE TABLE dictionary (
 4. `generate-questions` (Ollama call)
 5. `wordglow` app: Library (browse)
 6. `wordglow` app: Reading & playback (audio player + word highlighting + click-to-seek)
-7. `wordglow` app: Vocabulary (per-word action menu on click, translate via Ollama, saved-words list)
+7. `wordglow` app: Vocabulary (per-word action menu on click, translate via MyMemory, saved-words list)

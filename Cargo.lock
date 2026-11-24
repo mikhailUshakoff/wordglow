@@ -5009,7 +5009,7 @@ dependencies = [
 
 [[package]]
 name = "teacher-cli"
-version = "0.0.2"
+version = "0.0.3"
 dependencies = [
  "anyhow",
  "clap",
@@ -6252,7 +6252,7 @@ checksum = "1ebf944e87a7c253233ad6766e082e3cd714b5d03812acc24c318f549614536e"
 
 [[package]]
 name = "wordglow"
-version = "0.0.2"
+version = "0.0.3"
 dependencies = [
  "base64 0.22.1",
  "dotenvy",
@@ -6272,7 +6272,7 @@ dependencies = [
 
 [[package]]
 name = "wordglow-core"
-version = "0.0.2"
+version = "0.0.3"
 dependencies = [
  "base64 0.22.1",
  "chrono",

@@ -10,6 +10,7 @@ pub mod ollama;
 pub mod package;
 pub mod paths;
 pub mod questions;
+pub mod translate;
 pub mod tts;
 
 pub use error::{CoreError, Result};

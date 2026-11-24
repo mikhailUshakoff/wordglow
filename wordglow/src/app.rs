@@ -34,6 +34,8 @@ struct LessonIdArgs {
 #[serde(rename_all = "camelCase")]
 struct TranslateArgs {
     word: String,
+    /// Lesson the word came from; its book's language is the source language.
+    lesson_id: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -345,13 +347,15 @@ fn DictionaryRow(entry: DictionaryEntryDto, entries: RwSignal<Vec<DictionaryEntr
     let state = state();
     let id_for_translate = entry.id.clone();
     let word_for_translate = entry.word.clone();
+    let lesson_id_for_translate = entry.lesson_id.clone();
     let id_for_remove = entry.id.clone();
 
     let on_translate = move |_| {
         let id = id_for_translate.clone();
         let word = word_for_translate.clone();
+        let lesson_id = lesson_id_for_translate.clone();
         spawn_local(async move {
-            match invoke::<String>("translate_word", TranslateArgs { word }).await {
+            match invoke::<String>("translate_word", TranslateArgs { word, lesson_id }).await {
                 Ok(translation) => entries.update(|list| {
                     if let Some(e) = list.iter_mut().find(|e| e.id == id) {
                         e.translation = Some(translation);
@@ -673,6 +677,7 @@ fn ReadingView() -> impl IntoView {
                                         let word_for_menu = word_for_menu.clone();
                                         let word_for_translate = word_for_translate.clone();
                                         let word_for_save = word_for_save.clone();
+                                        let lesson_id_for_translate = lesson_id_for_save.clone();
                                         let lesson_id_for_save = lesson_id_for_save.clone();
                                         (word_menu.get() == Some(i)).then(move || {
                                             view! {
@@ -699,8 +704,11 @@ fn ReadingView() -> impl IntoView {
                                                         </button>
                                                         <button on:click=move |_| {
                                                             let word = word_for_translate.clone();
+                                                            let lesson_id = Some(lesson_id_for_translate.clone());
                                                             spawn_local(async move {
-                                                                match invoke::<String>("translate_word", TranslateArgs { word }).await {
+                                                                match invoke::<String>("translate_word", TranslateArgs { word, lesson_id })
+                                                                    .await
+                                                                {
                                                                     Ok(t) => word_translation.set(Some(t)),
                                                                     Err(e) => state.error.set(Some(e)),
                                                                 }

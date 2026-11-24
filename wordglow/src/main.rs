@@ -14,7 +14,7 @@ fn main() {
 
     dotenvy::dotenv().ok();
     let translate_config: commands::TranslateConfig =
-        envy::from_env().expect("reading TRANSLATE_SOURCE_LANG / MYMEMORY_EMAIL from the environment");
+        envy::from_env().expect("reading MYMEMORY_EMAIL from the environment");
 
     tauri::Builder::default()
         .manage(commands::DbState(std::sync::Mutex::new(conn)))

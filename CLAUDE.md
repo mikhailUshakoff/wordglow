@@ -134,7 +134,7 @@ CREATE TABLE dictionary (
 - **Google Cloud TTS**: real API (not the free `gTTS` wrapper). Send SSML with a `<mark>` per word; the response includes audio plus timepoints for each mark — store both.
 - **Microsoft Edge TTS** (via `msedge-tts`): free, unofficial, no key. Used by `generate-tts-free` as a fallback to Google Cloud TTS.
 - **Ollama**: remote HTTP API (default `http://localhost:11434`). Used by `generate-questions` only.
-- **MyMemory** (`api.mymemory.translated.net/get`): free, no API key. Used by the wordglow app's word-translation feature (translate to Russian) — Ollama's hosted API no longer allows free requests. Source language = primary subtag of the word's book `language` (`en-US` → `en`), passed via the lesson id; `TRANSLATE_SOURCE_LANG` (default `en`) is the fallback when there's no lesson/book language, optional `MYMEMORY_EMAIL` (raises daily quota ~5k → ~50k chars). Returns HTTP 200 even on API errors — check `responseStatus`.
+- **MyMemory** (`api.mymemory.translated.net/get`): free, no API key. Used by the wordglow app's word-translation feature (translate to Russian) — Ollama's hosted API no longer allows free requests. Source language = primary subtag of the word's book `language` (`en-US` → `en`), passed via the lesson id; falls back to `en` (`translate::DEFAULT_SOURCE_LANG`) when there's no lesson/book language. Config: optional `MYMEMORY_EMAIL` (raises daily quota ~5k → ~50k chars). Returns HTTP 200 even on API errors — check `responseStatus`.
 
 ## Out of scope for now
 

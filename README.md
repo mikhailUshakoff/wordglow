@@ -59,7 +59,6 @@ Environment variables (or a `.env` file):
 | `OLLAMA_URL` | `generate-questions` | `https://ollama.com` |
 | `OLLAMA_MODEL` | `generate-questions` | `gpt-oss:120b` |
 | `OLLAMA_API_KEY` | `generate-questions` (Ollama's hosted cloud API only) | none — unneeded for a local Ollama server |
-| `TRANSLATE_SOURCE_LANG` | Wordglow app (word translation) | `en` — fallback only; the source language normally comes from the word's book (`add-book --language`). Target is always Russian |
 | `MYMEMORY_EMAIL` | Wordglow app (word translation) | none — optional; raises MyMemory's free quota from ~5k to ~50k chars/day |
 
 ## Release builds

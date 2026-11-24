@@ -16,19 +16,9 @@ pub struct DbState(pub Mutex<Connection>);
 /// environment (or a `.env` file) via `envy`. No env vars are required.
 #[derive(serde::Deserialize)]
 pub struct TranslateConfig {
-    /// Fallback ISO 639-1 source language (`TRANSLATE_SOURCE_LANG`), used
-    /// only when the word's lesson/book has no language set.
-    #[serde(default = "TranslateConfig::default_source_lang")]
-    pub translate_source_lang: String,
     /// Optional email sent to MyMemory (`MYMEMORY_EMAIL`); raises the free
     /// daily quota from ~5k to ~50k chars.
     pub mymemory_email: Option<String>,
-}
-
-impl TranslateConfig {
-    fn default_source_lang() -> String {
-        "en".to_string()
-    }
 }
 
 fn book_to_dto(book: wordglow_core::models::Book) -> BookDto {
@@ -209,7 +199,7 @@ pub fn import_package(state: State<DbState>, data_base64: String) -> Result<Impo
 /// if the word is on the list, caches the result for next time.
 ///
 /// The source language is the language of `lesson_id`'s book, falling back
-/// to `TRANSLATE_SOURCE_LANG` when there's no lesson or the book has none.
+/// to English when there's no lesson or the book has none.
 #[tauri::command]
 pub fn translate_word(
     state: State<DbState>,
@@ -230,7 +220,7 @@ pub fn translate_word(
         Some(id) => wordglow_core::translate::source_lang_for_lesson(&conn, id).map_err(|e| e.to_string())?,
         None => None,
     }
-    .unwrap_or_else(|| config.translate_source_lang.clone());
+    .unwrap_or_else(|| wordglow_core::translate::DEFAULT_SOURCE_LANG.to_string());
 
     let translation =
         wordglow_core::translate::translate_word(&source_lang, config.mymemory_email.as_deref(), &word)

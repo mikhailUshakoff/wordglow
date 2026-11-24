@@ -14,8 +14,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- The source language for a translation is taken from the word's book (`add-book --language`, e.g. `en-US` → `en`).
-- `TRANSLATE_SOURCE_LANG` environment variable for the Wordglow app: fallback source language (default `en`), used when the word's book has no language set, or the saved word isn't linked to a lesson.
+- The source language for a translation is taken from the word's book (`add-book --language`, e.g. `en-US` → `en`). English is used when the book has no language set, or the saved word isn't linked to a lesson.
 - Optional `MYMEMORY_EMAIL` environment variable: raises MyMemory's free quota from about 5k to about 50k characters per day.
 - Translation errors from MyMemory, such as an exhausted daily quota, are shown as errors instead of being saved as the translation.
 - The GitHub release description is taken from this changelog.

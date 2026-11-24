@@ -5,6 +5,9 @@ use crate::error::{CoreError, Result};
 
 const MYMEMORY_URL: &str = "https://api.mymemory.translated.net/get";
 
+/// Source language used when a word's book has no usable language set.
+pub const DEFAULT_SOURCE_LANG: &str = "en";
+
 /// Source language for translating a word from `lesson_id`: the primary
 /// subtag of its book's `language` (e.g. `"en-US"` → `"en"`). `None` if the
 /// lesson doesn't exist or its book has no usable language set.
